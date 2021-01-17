@@ -105,3 +105,8 @@ cargo check
 
 #+RESULTS:
 : Hello, world!
+
+
+#+BEGIN_SRC rust
+
+#+END_SRC

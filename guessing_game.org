@@ -1,5 +1,344 @@
 * Programming a Guessing Game
 
-#+BEGIN_SRC rust
+First we generate the project
 
+#+BEGIN_SRC sh
+cargo new guessing_game
+#+END_SRC
+
+Then we look at the TOML file: 
+
+#+BEGIN_SRC sh :results raw
+cd guessing_game
+cat Cargo.toml
+#+END_SRC
+
+#+RESULTS:
+[package]
+name = "guessing_game"
+version = "0.1.0"
+authors = ["dr-neptune <mrose4@worcester.edu>"]
+edition = "2018"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+
+#+BEGIN_SRC sh
+cd guessing_game
+cargo run
+#+END_SRC
+
+#+RESULTS:
+| Hello | world! |
+
+#+BEGIN_SRC rust
+// bring the io library into scope
+use std::io;
+
+fn main() {
+    // print to screen
+    println!("Guess the number!");
+    println!("Please input your guess.");
+    // store user input in a mutable variable
+    let mut guess = String::new();
+    // call stdin from the io module
+    io::stdin()
+    // call the read_line method on the stdin to get input from the user.
+    // read_line takes whatever the user types and places it into a string, so it takes a string as an argument.
+	// & means that this argument is a reference, which lets multiple parts of our code access it without copying it into memory multiple times 
+	// returns a value: io::Result which is either Ok or Err
+        .read_line(&mut guess)
+	// if io::Result is an Err value, cause the program to crash. If Ok, then return value that Ok is holding. 
+        .expect("Failed to read line");
+    // print the string that we saved user input in 
+    println!("You guessed: {}", guess);
+}
+#+END_SRC
+
+
+#+BEGIN_SRC rust
+fn main() {
+    let x = 5;
+    let y = 10;
+
+    println!("x = {} and y = {}", x, y);
+}
+#+END_SRC
+
+#+RESULTS:
+: x = 5 and y = 10
+
+* Generating a Secret Number
+
+We will use the rand crate. We must modify our Cargo.toml file to include the rand crate as a dependency.
+
+#+BEGIN_SRC toml :tangle guessing_game/Cargo.toml
+[package]
+name = "guessing_game"
+version = "0.1.0"
+authors = ["dr-neptune <mrose4@worcester.edu>"]
+edition = "2018"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+rand = "0.6.0"
+#+END_SRC
+
+rebuild the project
+
+#+BEGIN_SRC sh
+cd guessing_game
+cargo build
+#+END_SRC
+
+* Generating a Random Number
+
+#+BEGIN_SRC rust 
+use std::io;
+// the Rng trait defines methods that random number generators implement, and it must be in scope to use those methods.
+use rand::Rng;
+
+fn main() {
+    println!("Guess the number!");
+    // thread_rng gives us an rng seeded by the OS 
+    let secret_number = rand::thread_rng().gen_range(1, 101);
+    println!("The secret number is: {}", secret_number);
+    println!("Please input your guess.");
+
+    let mut guess = String::new();
+    
+    io::stdin()
+	.read_line(&mut guess)
+	.expect("Failed to read line");
+
+    println!("You guessed: {}", guess);
+}
+#+END_SRC
+
+* Comparing the Guess to the Secret Number
+
+#+BEGIN_SRC rust
+use rand::Rng;
+use std::cmp::Ordering;
+use std::io;
+
+fn main() {
+    // --snip--
+    println!("You guessed: {}", guess);
+    
+    match guess.cmp(&secret_number) {
+	Ordering::Less => println!("Too small!");
+	Ordering::Greater => println!("Too big!");
+	Ordering::Equal => println!("You win!");
+    }
+}
+#+END_SRC
+
+The cmp method compares two values and can be called on anything that can be compared. Here its comparing the guess to the secret_number.
+
+A match expression is made up of arms. An arm consists of a pattern and the code that should be run if the value given to the beginning of the match expression fits that arm's pattern. 
+
+Let's add it so it works. To do this, we must convert the string the program reads as input into a real number type so that we can compare it numerically to the secret number.
+
+#+BEGIN_SRC rust 
+use std::io;
+use rand::Rng;
+use std::cmp::Ordering;
+
+fn main() {
+    println!("Guess the number!");
+    // thread_rng gives us an rng seeded by the OS 
+    let secret_number = rand::thread_rng().gen_range(1, 101);
+    println!("The secret number is: {}", secret_number);
+    println!("Please input your guess.");
+
+    let mut guess = String::new();
+    
+    io::stdin()
+	.read_line(&mut guess)
+	.expect("Failed to read line");
+
+    let guess: u32 = guess.trim().parse().expect("Please type a number!");
+
+    println!("You guessed: {}", guess);
+
+    match guess.cmp(&secret_number) {
+	Ordering::Less => println!("Too Small!"),
+	Ordering::Greater => println!("Too Big!"),
+	Ordering::Equal => println!("You Win!"),
+    }
+}
+#+END_SRC
+
+In this example we /shadow/ the previous value of guess with a new one. This is often used in situations where we want to convert a value from one type to another type. 
+
+The parse method parses a string into some kind of number. Because this method can parse a variety of number types, we need to tell Rust the exact number type we want using let guess: u32. 
+The : after guess tells Rust we'll annotate the variables type. 
+
+* Allowing Multiple Guesses with Looping
+
+The loop keyword creates an infinite loop
+
+#+BEGIN_SRC rust
+use std::io;
+use rand::Rng;
+use std::cmp::Ordering;
+
+fn main() {
+    println!("Guess the number!");
+    // thread_rng gives us an rng seeded by the OS 
+    let secret_number = rand::thread_rng().gen_range(1, 101);
+    println!("The secret number is: {}", secret_number);
+    
+    loop {
+	println!("Please input your guess.");
+
+	let mut guess = String::new();
+	
+	io::stdin()
+	    .read_line(&mut guess)
+	    .expect("Failed to read line");
+
+	let guess: u32 = guess.trim().parse().expect("Please type a number!");
+
+	println!("You guessed: {}", guess);
+
+	match guess.cmp(&secret_number) {
+	    Ordering::Less => println!("Too Small!"),
+	    Ordering::Greater => println!("Too Big!"),
+	    Ordering::Equal => println!("You Win!"),
+	}
+    }
+}
+#+END_SRC
+
+* Quitting After a Correct Guess
+
+#+BEGIN_SRC rust
+use std::io;
+use rand::Rng;
+use std::cmp::Ordering;
+
+fn main() {
+    println!("Guess the number!");
+    // thread_rng gives us an rng seeded by the OS 
+    let secret_number = rand::thread_rng().gen_range(1, 101);
+    println!("The secret number is: {}", secret_number);
+    
+    loop {
+	println!("Please input your guess.");
+
+	let mut guess = String::new();
+	
+	io::stdin()
+	    .read_line(&mut guess)
+	    .expect("Failed to read line");
+
+	let guess: u32 = guess.trim().parse().expect("Please type a number!");
+
+	println!("You guessed: {}", guess);
+
+	match guess.cmp(&secret_number) {
+	    Ordering::Less => println!("Too Small!"),
+	    Ordering::Greater => println!("Too Big!"),
+	    Ordering::Equal => {
+		println!("You Win!"); 
+		break;
+	    }
+	}
+    }
+}
+#+END_SRC
+
+Now we have a break after "You Win!" which will make the program exit the loop when the user guesses the secret number correctly.
+
+* Handling Invalid Input
+
+Instead of crashing the program when the user inputs a non number, we can make it ignore the non-number so the user can continue guessing.
+
+#+BEGIN_SRC rust  
+use std::io;
+use rand::Rng;
+use std::cmp::Ordering;
+
+fn main() {
+    println!("Guess the number!");
+    // thread_rng gives us an rng seeded by the OS 
+    let secret_number = rand::thread_rng().gen_range(1, 101);
+    println!("The secret number is: {}", secret_number);
+    
+    loop {
+	println!("Please input your guess.");
+
+	let mut guess = String::new();
+	
+	io::stdin()
+	    .read_line(&mut guess)
+	    .expect("Failed to read line");
+	// add conditional error handling on Result
+	let guess: u32 = match guess.trim().parse() {
+	    Ok(num) => num,
+	    Err(_) => continue,
+	};
+
+	println!("You guessed: {}", guess);
+
+	match guess.cmp(&secret_number) {
+	    Ordering::Less => println!("Too Small!"),
+	    Ordering::Greater => println!("Too Big!"),
+	    Ordering::Equal => {
+		println!("You Win!"); 
+		break;
+	    }
+	}
+    }
+}
+#+END_SRC
+
+Switching from an `expect` call to a `match` expression is how we move from crashing on an error to handling the error. 
+If parse is able to successfully turn the string into a number, it will return an Ok value that contains the resulting number.
+If it is not able to turn the string into a number, it will return an Err value that contains more info about the error.
+The underscore _ is a catch-all value. In this example, we are saying we want to match all Err values, no matter what information they have inside them.
+
+Now that we have a working program, we can delete the printing of the secret number
+
+#+BEGIN_SRC rust :tangle guessing_game/src/main.rs
+use std::io;
+use rand::Rng;
+use std::cmp::Ordering;
+
+fn main() {
+    println!("Guess the number!");
+    // thread_rng gives us an rng seeded by the OS 
+    let secret_number = rand::thread_rng().gen_range(1, 101);
+    // println!("The secret number is: {}", secret_number);
+    
+    loop {
+	println!("Please input your guess.");
+
+	let mut guess = String::new();
+	
+	io::stdin()
+	    .read_line(&mut guess)
+	    .expect("Failed to read line");
+	// add conditional error handling on Result
+	let guess: u32 = match guess.trim().parse() {
+	    Ok(num) => num,
+	    Err(_) => continue,
+	};
+
+	println!("You guessed: {}", guess);
+
+	match guess.cmp(&secret_number) {
+	    Ordering::Less => println!("Too Small!"),
+	    Ordering::Greater => println!("Too Big!"),
+	    Ordering::Equal => {
+		println!("You Win!"); 
+		break;
+	    }
+	}
+    }
+}
 #+END_SRC
