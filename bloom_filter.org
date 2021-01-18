@@ -285,8 +285,6 @@ fn main() {
 }
 #+END_SRC
 
-#+RESULTS:
-#+begin_example
 --------------------------------------------------------
 Generating Database & Adding to Bloom Filter
 --------------------------------------------------------
@@ -333,7 +331,7 @@ Checking for Geovanni O'Kon: true
 Checking for Austyn Schamberger: false
 Checking for Lloyd Wintheiser: true
 Checking for Melissa Casper: false
-#+end_example
+
 
 # #+name: top
 # #+BEGIN_SRC rust
