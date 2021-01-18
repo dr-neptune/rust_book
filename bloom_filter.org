@@ -4,6 +4,13 @@ From wikipedia:
 
 A **Bloom Filter** is a space-efficient probabilistic data structure that is used to test whether an element is a member of a set.
 
+All glory to [[https://onatm.dev/2020/08/10/let-s-implement-a-bloom-filter/][this blog]]. I just:
+- took the code
+- added comments
+- broke it up into functions / modules
+- added some fake data to test it
+- put it all together
+
 * Build the Project
 
 First we make a new project
