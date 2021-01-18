@@ -254,7 +254,7 @@ for i in 0..20 {
   
 Now we can put it all together!
 
-#+BEGIN_SRC rust :noweb yes :crates '((bit-vec . "0.6")(fake . "2.4"))  :tangle bloom_filter/src/main.rs
+#+BEGIN_SRC rust :noweb yes :crates '((bit-vec . "0.6")(fake . "2.4"))  :tangle bloom_filter/src/main.rs :results verbatim
 // add struct and use crates
 <<preamble-struct>>
 
@@ -285,53 +285,55 @@ fn main() {
 }
 #+END_SRC
 
+#+RESULTS:
+#+begin_example
 --------------------------------------------------------
 Generating Database & Adding to Bloom Filter
 --------------------------------------------------------
-    Adding Name 1:	"Angelica Mayert"
-Not Adding Name 2:	"Fae Trantow"
-    Adding Name 3:	"Audreanne Altenwerth"
-Not Adding Name 4:	"Mathias Aufderhar"
-    Adding Name 5:	"Boris Hermann"
-Not Adding Name 6:	"Ellsworth Ruecker"
-    Adding Name 7:	"Harry Mante"
-Not Adding Name 8:	"Sally Buckridge"
-    Adding Name 9:	"Gideon Kuhn"
-Not Adding Name 10:	"Will Hintz"
-    Adding Name 11:	"Malachi Kuhn"
-Not Adding Name 12:	"Collin Nicolas"
-    Adding Name 13:	"Charley Johns"
-Not Adding Name 14:	"Ramiro Orn"
-    Adding Name 15:	"Donavon Lynch"
-Not Adding Name 16:	"Jewel Hammes"
-    Adding Name 17:	"Geovanni O\'Kon"
-Not Adding Name 18:	"Austyn Schamberger"
-    Adding Name 19:	"Lloyd Wintheiser"
-Not Adding Name 20:	"Melissa Casper"
+    Adding Name 1:	"Kendra Schultz"
+Not Adding Name 2:	"Flavie Powlowski"
+    Adding Name 3:	"Murphy Kunze"
+Not Adding Name 4:	"Consuelo Larkin"
+    Adding Name 5:	"Delfina Dare"
+Not Adding Name 6:	"Flavie Schowalter"
+    Adding Name 7:	"Ahmed Kuvalis"
+Not Adding Name 8:	"Trent Schuster"
+    Adding Name 9:	"Katharina Ledner"
+Not Adding Name 10:	"Hope Johns"
+    Adding Name 11:	"Eudora Batz"
+Not Adding Name 12:	"Shyann Raynor"
+    Adding Name 13:	"Ibrahim Harvey"
+Not Adding Name 14:	"Casey Hahn"
+    Adding Name 15:	"Maryjane Waters"
+Not Adding Name 16:	"Neha Swift"
+    Adding Name 17:	"Trystan Kunde"
+Not Adding Name 18:	"Wilmer Runolfsson"
+    Adding Name 19:	"Reta Donnelly"
+Not Adding Name 20:	"Harold McDermott"
 --------------------------------------------------------
 Checking Bloom Filter
 --------------------------------------------------------
-Checking for Angelica Mayert: true
-Checking for Fae Trantow: false
-Checking for Audreanne Altenwerth: true
-Checking for Mathias Aufderhar: false
-Checking for Boris Hermann: true
-Checking for Ellsworth Ruecker: false
-Checking for Harry Mante: true
-Checking for Sally Buckridge: false
-Checking for Gideon Kuhn: true
-Checking for Will Hintz: false
-Checking for Malachi Kuhn: true
-Checking for Collin Nicolas: false
-Checking for Charley Johns: true
-Checking for Ramiro Orn: false
-Checking for Donavon Lynch: true
-Checking for Jewel Hammes: false
-Checking for Geovanni O'Kon: true
-Checking for Austyn Schamberger: false
-Checking for Lloyd Wintheiser: true
-Checking for Melissa Casper: false
-
+Checking for Kendra Schultz: true
+Checking for Flavie Powlowski: false
+Checking for Murphy Kunze: true
+Checking for Consuelo Larkin: false
+Checking for Delfina Dare: true
+Checking for Flavie Schowalter: false
+Checking for Ahmed Kuvalis: true
+Checking for Trent Schuster: false
+Checking for Katharina Ledner: true
+Checking for Hope Johns: false
+Checking for Eudora Batz: true
+Checking for Shyann Raynor: false
+Checking for Ibrahim Harvey: true
+Checking for Casey Hahn: false
+Checking for Maryjane Waters: true
+Checking for Neha Swift: false
+Checking for Trystan Kunde: true
+Checking for Wilmer Runolfsson: false
+Checking for Reta Donnelly: true
+Checking for Harold McDermott: false
+#+end_example
 
 # #+name: top
 # #+BEGIN_SRC rust
