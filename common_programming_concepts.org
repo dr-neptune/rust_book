@@ -1,0 +1,344 @@
+* Common Programming Concepts
+
+* Variables and Mutability
+
+By default variables are immutable (awesome).
+When a variable is immutable, once a value is bound to a name, you can't change that value.
+
+#+name:
+#+BEGIN_SRC rust
+fn main() {
+    let x = 5;
+    println!("The value of x is: {}", x);
+    x = 6;
+    println!("The value of x is: {}", x);
+}
+#+END_SRC
+
+Nets us:
+
+error[E0384]: cannot assign twice to immutable variable `x`
+ --> src/main.rs:5:5
+  |
+3 |     let x = 5;
+  |         -
+  |         |
+  |         first assignment to `x`
+  |         help: make this binding mutable: `mut x`
+4 |     println!("The value of x is: {}", x);
+5 |     x = 6;
+  |     ^^^^^ cannot assign twice to immutable variable
+
+error: aborting due to previous error
+
+For more information about this error, try `rustc --explain E0384`.
+error: could not compile `cargotQsaTD`.
+
+To learn more, run the command again with --verbose.
+
+We can also force mutability by adding mut to the front of the variable name:
+
+#+name:
+#+BEGIN_SRC rust
+fn main() {
+    let mut x = 5;
+    println!("The value of x is: {}", x);
+    x = 6;
+    println!("The value of x is: {}", x);
+}
+#+END_SRC
+
+** Differences Between Variables and Constants
+
+   Constants are immutable by default and you aren't allowed to use mut with constants.
+   We can declare constants using the const keyword instead of the let keyword, and the type of the value must be annotated.
+   They can be declared in any scope, even global scope.
+
+#+name:
+#+BEGIN_SRC rust
+const MAX_POINTS: u32 = 100_000;
+#+END_SRC
+
+** Shadowing
+
+   As we saw in the guessing game, we can declare a new variable with the same name as a previous variable, and the new variable shadows the previous variable.
+   When the first variable is /shadowed/ by the second, the second variable's value is what is used when the variable is called.
+
+#+name:
+#+BEGIN_SRC rust
+fn main() {
+    let x = 5;
+    let x = x + 1;
+    let x = x * 2;
+
+    println!("The value of x is: {}", x);
+}
+#+END_SRC
+
+Shadowing is different from marking a variable as mut because we'll get a compile time error is we accidentally try to reassign this variable without using the let keyword.
+By using let, we can perform a few transformations on a value but have the variable be immutable after those transformations have been completed.
+
+The other difference between mut and shadowing is that because we're effectively creating a new variable when we use the let keyword again, we can change the type of the value but reuse the same name.
+
+For example, say our program asks a user to show how many spaces they want between some text by inputting space characters, but we really want to store that input as a number:
+
+#+name:
+#+BEGIN_SRC rust
+fn main() {
+    let spaces = "  ";
+    let spaces = spaces.len();
+    println!("Spaces: {}", spaces);
+}
+#+END_SRC
+
+#+name:
+#+BEGIN_SRC rust
+fn main() {
+    let mut spaces = "  ";
+    let spaces = spaces.len();
+    println!("Spaces: {}", spaces);
+}
+#+END_SRC
+
+warning: variable does not need to be mutable
+ --> src/main.rs:3:9
+  |
+3 |     let mut spaces = "  ";
+  |         ----^^^^^^
+  |         |
+  |         help: remove this `mut`
+  |
+  = note: `#[warn(unused_mut)]` on by default
+
+warning: 1 warning emitted
+
+warning: variable does not need to be mutable
+ --> src/main.rs:3:9
+  |
+3 |     let mut spaces = "  ";
+  |         ----^^^^^^
+  |         |
+  |         help: remove this `mut`
+  |
+  = note: `#[warn(unused_mut)]` on by default
+
+warning: 1 warning emitted
+
+Spaces: 2
+
+The book says we will get an error. I only got a warning.
+
+* Data Types
+
+In this section we will look at 2 data type subsets: scalar and compound.
+
+In cases where many types are possible, such as when we converted a String to a numeric type using parse, we must add a type annotation like this:
+
+#+name:
+#+BEGIN_SRC rust
+fn main() {
+    let guess: u32 = "42".parse().expect("Not a number!");
+    println!("{}", guess);
+}
+#+END_SRC
+
+If we don't add the type annotation, it won't compile:
+
+#+name:
+#+BEGIN_SRC rust
+fn main() {
+    let guess = "42".parse().expect("Not a number!");
+    println!("{}", guess);
+}
+#+END_SRC
+
+error[E0282]: type annotations needed
+ --> src/main.rs:3:9
+  |
+3 |     let guess = "42".parse().expect("Not a number!");
+  |         ^^^^^ consider giving `guess` a type
+
+error: aborting due to previous error
+
+For more information about this error, try `rustc --explain E0282`.
+error: could not compile `cargoFSEIjc`.
+
+To learn more, run the command again with --verbose.
+
+** Scalar Types
+
+   A scalar type represents a single value. Rust has 4 primary scalar types: integers, floating-point numbers, Booleans, and characters.
+
+   
+** Integer Types
+
+   An integer is a number without a fractional component.
+
+   Here are the built in integer types for rust:
+
+| Length  | Signed | Unsigned |
+|---------+--------+----------|
+| 16 bit  | i16    | u16      |
+| 32 bit  | i32    | u32      |
+| 64 bit  | i64    | u64      |
+| 128 bit | i128   | u128     |
+| arch    | isize  | usize    |
+
+Signed and unsigned refer to whether it's possible for the number to be negative, i.e. whether it needs to have a sign (signed) or not (unsigned).
+
+If you're unsure of which integer to use, Rust defaults to i32 which is generally the fastest (even on 64 bit systems).
+The primary situation in which you'd use isize or usize is when indexing some sort of collection.
+
+** Floating Point Types
+
+   Rusts floating point types are f32 and f64. The default is f64.
+   
+#+name:
+#+BEGIN_SRC rust
+fn main() {
+    let x = 2.0; // f64
+    let y: f32 = 3.0; //f32
+}
+#+END_SRC
+
+*** Numeric Operations
+
+ #+name:
+ #+BEGIN_SRC rust
+fn main() {
+    // addition
+    let sum = 5 + 10;
+
+    // subtraction
+    let difference = 95.5 - 4.3;
+
+    // multiplication
+    let product = 4 * 30;
+
+    // division
+    let quotient = 56.7 / 32.3;
+
+    // remainder
+    let remainder = 43 % 5;
+
+    println!(
+        "Sum:\t\t{}\nDifference:\t{}\nProduct:\t{}\nQuotient:\t{}\nRemainder:\t{}",
+        sum, difference, product, quotient, remainder
+    );
+}
+ #+END_SRC
+
+*** The Boolean Type
+
+ #+name:
+ #+BEGIN_SRC rust
+fn main() {
+    let t = true;
+    let f: bool = false; // with explicit type annotation
+}
+ #+END_SRC
+
+*** The Character Type
+   
+ #+name:
+ #+BEGIN_SRC rust
+fn main() {
+    let c = 'z';
+    let z = 'ℤ';
+    let heart_eyed_cat = '😻';
+
+    println!("{}{}{}", c, z, heart_eyed_cat);
+}
+ #+END_SRC
+
+** Compound Types
+
+   Compound types can group multiple values into one type. Rust has two primitive compound types: tuples and arrays.
+
+*** The Tuple Type
+
+    A tuple is a general way of grouping together a number of values with a variety of types into one compound type. Tuples have a fixed length: once declared, they cannot grow or shrink in size.
+
+#+name:
+#+BEGIN_SRC rust
+// create a tuple
+fn main() {
+    // create a tuple
+    let tup: (i32, f64, u8) = (500, 6.4, 1);
+
+    // destructure the tuple
+    let (x, y, z) = tup;
+
+    println!(
+        "The value of x is:\t{}\nThe value of y is:\t{}\nThe value of z is:\t{}",
+        x, y, z
+    );
+
+    // access tuple elements directly using period
+    let five_hundred = tup.0;
+    let six_point_four = tup.1;
+    let one = tup.2;
+    println!(
+        "Our tuple:\t\t({}, {}, {})",
+        five_hundred, six_point_four, one
+    );
+}
+#+END_SRC
+
+*** The Array Type
+
+    Arrays:
+    Unlike a tuple, every element of an array must have the same type.
+    Arrays in rust differ from arrays in some other languages because they have a fixed length, like tuples.
+    Arrays are useful when we want our data allocated on the stack rather than on the heap, or when we want to ensure we always have a fixed number of elements.
+
+    Vectors:
+    A vector is a similar collection type provided by the standard library that is allowed to grow or shrink in size. If we are unsure whether to use an array or vector, we should probably use a vector.
+    
+#+name:
+#+BEGIN_SRC rust
+fn main() {
+    // define an array
+    let _a = [1, 2, 3, 4, 5];
+    let _a: [i32; 5] = [1, 2, 3, 4, 5]; // explicit type declaration and length.
+    let a = [3; 5]; // returns an array with 5 elements, all of which are 3.
+                    // example of good vector use. no adding / deletion
+    let months = [
+        "Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec",
+    ];
+
+    // accessing array elements
+    let first = a[0];
+    let second = a[1];
+
+    for i in 0..a.len() {
+        println!("Month:\t{}\nA:\t{}", months[i], a[i]);
+        println!("First:\t{}\nSecond:\t{}", first * i, second * i);
+    }
+}
+#+END_SRC
+
+#+RESULTS: 
+#+begin_example
+Month:	Jan
+A:	3
+First:	0
+Second:	0
+Month:	Feb
+A:	3
+First:	3
+Second:	3
+Month:	Mar
+A:	3
+First:	6
+Second:	6
+Month:	Apr
+A:	3
+First:	9
+Second:	9
+Month:	May
+A:	3
+First:	12
+Second:	12
+#+end_example
+
