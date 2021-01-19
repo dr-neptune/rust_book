@@ -17,6 +17,7 @@ fn main() {
 
 Nets us:
 
+#+BEGIN_SRC
 error[E0384]: cannot assign twice to immutable variable `x`
  --> src/main.rs:5:5
   |
@@ -35,6 +36,7 @@ For more information about this error, try `rustc --explain E0384`.
 error: could not compile `cargotQsaTD`.
 
 To learn more, run the command again with --verbose.
+#+END_SRC
 
 We can also force mutability by adding mut to the front of the variable name:
 
@@ -100,6 +102,7 @@ fn main() {
 }
 #+END_SRC
 
+#+BEGIN_SRC
 warning: variable does not need to be mutable
  --> src/main.rs:3:9
   |
@@ -125,6 +128,7 @@ warning: variable does not need to be mutable
 warning: 1 warning emitted
 
 Spaces: 2
+#+END_SRC
 
 The book says we will get an error. I only got a warning.
 
@@ -152,6 +156,8 @@ fn main() {
 }
 #+END_SRC
 
+
+#+BEGIN_SRC 
 error[E0282]: type annotations needed
  --> src/main.rs:3:9
   |
@@ -162,6 +168,7 @@ error: aborting due to previous error
 
 For more information about this error, try `rustc --explain E0282`.
 error: could not compile `cargoFSEIjc`.
+#+END_SRC
 
 To learn more, run the command again with --verbose.
 
@@ -421,5 +428,480 @@ For more information about this error, try `rustc --explain E0308`.
 error: could not compile `cargo05szuD`.
 
 To learn more, run the command again with --verbose.
+#+END_SRC
+
+* Control Flow
+  
+** If Expressions
+
+#+name:
+#+BEGIN_SRC rust
+fn main() {
+    let number = 7;
+
+    if number < 5 {
+        println!("Condition was true");
+    } else {
+        println!("Condition was false");
+    }
+}
+#+END_SRC
+
+#+name:
+#+BEGIN_SRC rust
+fn main() {
+    let number = 3;
+    if number != 0 {
+        println!("Number was something other than 0");
+    }
+}
+#+END_SRC
+
+#+name:
+#+BEGIN_SRC rust
+fn main() {
+    let number = 6;
+    if number % 4 == 0 {
+        println!("Number is divisible by 4");
+    } else if number % 3 == 0 {
+        println!("Number is divisible by 3");
+    } else if number % 2 == 0 {
+        println!("Number is divisible by 2");
+    } else {
+        println!("Number is not divisible by 4, 3, or 2.");
+    }
+}
+#+END_SRC
+
+#+name:
+#+BEGIN_SRC rust
+fn main() {
+    let number = 6;
+    match number {
+        number if number % 4 == 0 => println!("Number divisible by 4"),
+        number if number % 3 == 0 => println!("Number divisible by 3"),
+        number if number % 2 == 0 => println!("Number divisible by 2"),
+        _ => println!("Number is not divisible by 4, 3, or 2."),
+    }
+}
+#+END_SRC
+
+** Using if in a let statement
+
+   Because if is an expression, we can use it on the right side of a let statement
+
+#+name:
+#+BEGIN_SRC rust
+fn main() {
+    let condition = true;
+    let number = if condition { 5 } else { 6 };
+    println!("The value of the number is: {}", number);
+}
+#+END_SRC
+
+Blocks of code evaluate to the last expression in them, and numbers by themselves are also expressions. In this case, the value of the whole if expression depends on which block of code executes.
+This means the values have the potential to be results from each arm of the if must be the same type. If the types are mismatched, the compiler will throw an error. 
+
+#+name:
+#+BEGIN_SRC rust
+fn main() {
+    let condition = true;
+    let number = if condition { 5 } else { "six" };
+    println!("The value of the number is: {}", number);
+}
+#+END_SRC
+
+
+#+BEGIN_SRC 
+error[E0308]: `if` and `else` have incompatible types
+ --> src/main.rs:4:44
+  |
+4 |     let number = if condition { 5 } else { "six" };
+  |                                 -          ^^^^^ expected integer, found `&str`
+  |                                 |
+  |                                 expected because of this
+
+error: aborting due to previous error
+
+For more information about this error, try `rustc --explain E0308`.
+error: could not compile `cargo3VkbtW`.
+
+To learn more, run the command again with --verbose.
+#+END_SRC
+
+** Repetition with Loops
+
+   Rust has 3 kinds of loops: loop, while, and for.
+
+   loop is an infinite loop until a condition is met or an escape is sent from the keyboard.
+   
+#+name:
+#+BEGIN_SRC rust
+fn main() {
+    loop {
+        println!("Again!");
+        break;
+    }
+}
+#+END_SRC
+
+** Returning values from loops
+
+   One of the uses of a loop is to retry an operation we know might fail, such as checking whether a thread has completed its job.
+   We might need to pass the result of an operation to the rest of the code. To do this we can add the value we want returned after the break expression.
+   
+#+name:
+#+BEGIN_SRC rust
+fn main() {
+    let mut counter = 0;
+    let result = loop {
+        counter += 1;
+        if counter == 10 {
+            break counter * 2;
+        }
+    };
+    println!("The result is {}", result);
+}
+#+END_SRC
+
+** Conditional Loops with while
+
+#+name:
+#+BEGIN_SRC rust
+fn main() {
+    let mut number = 3;
+    while number != 0 {
+        println!("{}!", number);
+        number -= 1;
+    }
+    println!("LIFTOFF!!!");
+}
+#+END_SRC
+      
+#+name:
+#+BEGIN_SRC rust
+// microloops
+fn print_note(n: u32) {
+    let mut counter = n;
+    while counter != 0 {
+        print!("𝅘𝅥𝅮");
+        counter -= 1;
+    }
+}
+
+fn small_loop(i: u32) {
+    let mut counter = 0;
+    let result = loop {
+        counter += 1;
+        print_note(counter);
+        if counter == i {
+            break counter;
+        }
+    };
+    println!("{}", result);
+}
+
+fn main() {
+    let mut number = 8;
+    while number != 0 {
+        small_loop(number);
+        number -= 1;
+    }
+    println!("It's pretty much Meshuggah");
+}
+#+END_SRC
+
+** Looping Through a Collection with for
+
+   We could use a while loop to loop through a collection, like an array:
+   
+#+name:
+#+BEGIN_SRC rust
+fn main() {
+    let a = [10, 20, 30, 40, 50];
+    let mut index = 0;
+
+    while index < 5 {
+        println!("The value is:\t{}", a[index]);
+        index += 1;
+    }
+}
+#+END_SRC
+
+This approach is error prone because we could cause the program to panic if the index length is incorrect.
+It's also slow because the compiler adds runtime code to perform the conditional check on every element on event iteration through the loop.
+
+Instead we could use a for loop:
+
+#+name:
+#+BEGIN_SRC rust
+fn main() {
+    let a = [10, 20, 30, 40, 50];
+
+    for element in a.iter() {
+        println!("The value is:\t{}", element);
+    }
+}
+#+END_SRC
+
+We get the same results, and the code is safer because the iterations are explicitly stated.
+
+#+name:
+#+BEGIN_SRC rust
+fn main() {
+    for number in (1..4).rev() {
+        println!("{}!", number);
+    }
+    println!("LIFTOFF!!!");
+}
+#+END_SRC
+
+* Summary
+
+  Try building programs to do the following:
+
+** Convert temperature between Fahrenheit and Celsius
+
+#+name:
+#+BEGIN_SRC rust
+fn convert_temp(temp: f64) -> (f64, f64, f64) {
+    let celsius = (temp - 32.0) / 1.8;
+    let fahrenheit = (temp * (9.0 / 5.0)) + 32.0;
+    let kelvin = celsius * 274.15;
+    (celsius, fahrenheit, kelvin)
+}
+
+fn main() {
+    println!(
+        "Celsius:\t{:.2}\nFahrenheit:\t{:.2}\nKelvin:\t{:.2}",
+        convert_temp(100.0).0,
+        convert_temp(100.0).1,
+        convert_temp(100.0).2
+    );
+}
+#+END_SRC
+   
+** Generate the nth Fibonacci number
+
+#+name:
+#+BEGIN_SRC rust
+fn fib(n: u32) -> u32 {
+    match n {
+        0 => 0,
+        1 => 1,
+        _ => fib(n - 1) + fib(n - 2),
+    }
+}
+
+fn main() {
+    for number in 1..10 {
+        println!("{}", fib(number));
+    }
+}
+#+END_SRC
+
+** Print the lyrics to the Christmas carol "The Twelve Days of Christmas", taking advantage of the repetition
+
+#+name:
+#+BEGIN_SRC rust
+// get the lyrics for each day of xmas
+fn day_of_xmas(n: u32) {
+    match n {
+        1 => println!("A partridge in a pear tree"),
+        2 => println!("Two turtle doves, and"),
+        3 => println!("Three french hens"),
+        4 => println!("Four calling birds"),
+        5 => println!("Five golden rings"),
+        6 => println!("Six geese a-laying"),
+        7 => println!("Seven swans a-swimming"),
+        8 => println!("Eight maids a milking"),
+        9 => println!("Nine ladies dancing"),
+        10 => println!("Ten lords a leaping"),
+        11 => println!("Eleven pipers piping"),
+        12 => println!("Twelve drummers drumming"),
+        _ => println!("Tooooo many daaaays"),
+    }
+}
+
+// recursively sing each line
+fn sing_it(n: u32) {
+    if n == 1 {
+        day_of_xmas(n);
+    } else {
+        day_of_xmas(n);
+        sing_it(n - 1)
+    }
+}
+
+// get the proper days, add a heading and print out the day's worth of song
+fn nth_day(n: u32) {
+    let result = match n {
+        1 => "first",
+        2 => "second",
+        3 => "third",
+        4 => "fourth",
+        5 => "fifth",
+        6 => "sixth",
+        7 => "seventh",
+        8 => "eighth",
+        9 => "ninth",
+        10 => "tenth",
+        11 => "eleventh",
+        12 => "twelfth",
+        _ => "nope",
+    };
+    println!(
+        "\n------------------------------------------------------\nOn the {} day of christmas, my true love gave to me\n------------------------------------------------------\n",
+        result
+    );
+    sing_it(n);
+}
+
+// hit it
+fn main() {
+    for number in 1..13 {
+        nth_day(number);
+    }
+}
+#+END_SRC
+ 
+#+BEGIN_SRC
+------------------------------------------------------
+On the first day of christmas, my true love gave to me
+------------------------------------------------------
+
+A partridge in a pear tree
+
+------------------------------------------------------
+On the second day of christmas, my true love gave to me
+------------------------------------------------------
+
+Two turtle doves, and
+A partridge in a pear tree
+
+------------------------------------------------------
+On the third day of christmas, my true love gave to me
+------------------------------------------------------
+
+Three french hens
+Two turtle doves, and
+A partridge in a pear tree
+
+------------------------------------------------------
+On the fourth day of christmas, my true love gave to me
+------------------------------------------------------
+
+Four calling birds
+Three french hens
+Two turtle doves, and
+A partridge in a pear tree
+
+------------------------------------------------------
+On the fifth day of christmas, my true love gave to me
+------------------------------------------------------
+
+Five golden rings
+Four calling birds
+Three french hens
+Two turtle doves, and
+A partridge in a pear tree
+
+------------------------------------------------------
+On the sixth day of christmas, my true love gave to me
+------------------------------------------------------
+
+Six geese a-laying
+Five golden rings
+Four calling birds
+Three french hens
+Two turtle doves, and
+A partridge in a pear tree
+
+------------------------------------------------------
+On the seventh day of christmas, my true love gave to me
+------------------------------------------------------
+
+Seven swans a-swimming
+Six geese a-laying
+Five golden rings
+Four calling birds
+Three french hens
+Two turtle doves, and
+A partridge in a pear tree
+
+------------------------------------------------------
+On the eighth day of christmas, my true love gave to me
+------------------------------------------------------
+
+Eight maids a milking
+Seven swans a-swimming
+Six geese a-laying
+Five golden rings
+Four calling birds
+Three french hens
+Two turtle doves, and
+A partridge in a pear tree
+
+------------------------------------------------------
+On the ninth day of christmas, my true love gave to me
+------------------------------------------------------
+
+Nine ladies dancing
+Eight maids a milking
+Seven swans a-swimming
+Six geese a-laying
+Five golden rings
+Four calling birds
+Three french hens
+Two turtle doves, and
+A partridge in a pear tree
+
+------------------------------------------------------
+On the tenth day of christmas, my true love gave to me
+------------------------------------------------------
+
+Ten lords a leaping
+Nine ladies dancing
+Eight maids a milking
+Seven swans a-swimming
+Six geese a-laying
+Five golden rings
+Four calling birds
+Three french hens
+Two turtle doves, and
+A partridge in a pear tree
+
+------------------------------------------------------
+On the eleventh day of christmas, my true love gave to me
+------------------------------------------------------
+
+Eleven pipers piping
+Ten lords a leaping
+Nine ladies dancing
+Eight maids a milking
+Seven swans a-swimming
+Six geese a-laying
+Five golden rings
+Four calling birds
+Three french hens
+Two turtle doves, and
+A partridge in a pear tree
+
+------------------------------------------------------
+On the twelfth day of christmas, my true love gave to me
+------------------------------------------------------
+
+Twelve drummers drumming
+Eleven pipers piping
+Ten lords a leaping
+Nine ladies dancing
+Eight maids a milking
+Seven swans a-swimming
+Six geese a-laying
+Five golden rings
+Four calling birds
+Three french hens
+Two turtle doves, and
+A partridge in a pear tree
 #+END_SRC
 
