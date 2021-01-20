@@ -664,41 +664,126 @@ fn main() {
 
 #+name:
 #+BEGIN_SRC rust
-fn convert_temp(temp: f64) -> (f64, f64, f64) {
+fn convert_temp(temp: f64) -> (f64, f64, f64, f64) {
     let celsius = (temp - 32.0) / 1.8;
     let fahrenheit = (temp * (9.0 / 5.0)) + 32.0;
-    let kelvin = celsius * 274.15;
-    (celsius, fahrenheit, kelvin)
+    let c_kelvin = celsius * 274.15;
+    let f_kelvin = fahrenheit * 255.9287;
+    (celsius, fahrenheit, c_kelvin, f_kelvin)
 }
 
 fn main() {
-    println!(
-        "Celsius:\t{:.2}\nFahrenheit:\t{:.2}\nKelvin:\t{:.2}",
-        convert_temp(100.0).0,
-        convert_temp(100.0).1,
-        convert_temp(100.0).2
-    );
+    for number in (0..110).step_by(10) {
+        let y = number as f64;
+        println!(
+            "Input:\t\t\t{}\nIf F, Celsius:\t\t{:.2}\nIf C, Fahrenheit:\t{:.2}\nIf C, Kelvin:\t\t{:.2}\nIf F, Kelvin:\t\t{:.2}\n",
+            y,
+            convert_temp(y).0,
+            convert_temp(y).1,
+            convert_temp(y).2,
+	    convert_temp(y).3,
+        );
+    }
 }
 #+END_SRC
-   
+ 
+#+BEGIN_SRC
+Input:			0
+If F, Celsius:		-17.78
+If C, Fahrenheit:	32.00
+If C, Kelvin:		-4873.78
+If F, Kelvin:		8189.72
+
+Input:			10
+If F, Celsius:		-12.22
+If C, Fahrenheit:	50.00
+If C, Kelvin:		-3350.72
+If F, Kelvin:		12796.43
+
+Input:			20
+If F, Celsius:		-6.67
+If C, Fahrenheit:	68.00
+If C, Kelvin:		-1827.67
+If F, Kelvin:		17403.15
+
+Input:			30
+If F, Celsius:		-1.11
+If C, Fahrenheit:	86.00
+If C, Kelvin:		-304.61
+If F, Kelvin:		22009.87
+
+Input:			40
+If F, Celsius:		4.44
+If C, Fahrenheit:	104.00
+If C, Kelvin:		1218.44
+If F, Kelvin:		26616.58
+
+Input:			50
+If F, Celsius:		10.00
+If C, Fahrenheit:	122.00
+If C, Kelvin:		2741.50
+If F, Kelvin:		31223.30
+
+Input:			60
+If F, Celsius:		15.56
+If C, Fahrenheit:	140.00
+If C, Kelvin:		4264.56
+If F, Kelvin:		35830.02
+
+Input:			70
+If F, Celsius:		21.11
+If C, Fahrenheit:	158.00
+If C, Kelvin:		5787.61
+If F, Kelvin:		40436.73
+
+Input:			80
+If F, Celsius:		26.67
+If C, Fahrenheit:	176.00
+If C, Kelvin:		7310.67
+If F, Kelvin:		45043.45
+
+Input:			90
+If F, Celsius:		32.22
+If C, Fahrenheit:	194.00
+If C, Kelvin:		8833.72
+If F, Kelvin:		49650.17
+
+Input:			100
+If F, Celsius:		37.78
+If C, Fahrenheit:	212.00
+If C, Kelvin:		10356.78
+If F, Kelvin:		54256.88
+#+END_SRC
+ 
 ** Generate the nth Fibonacci number
 
 #+name:
 #+BEGIN_SRC rust
-fn fib(n: u32) -> u32 {
-    match n {
-        0 => 0,
-        1 => 1,
-        _ => fib(n - 1) + fib(n - 2),
-    }
+// fn fib(n: u32) -> u32 {
+//     match n {
+//         0 => 0,
+//         1 => 1,
+//         _ => fib(n - 1) + fib(n - 2),
+//     }
+// }
+
+fn binet(n: u32) -> u64 {
+    let first_term = (1.0 + (5.0 as f64).sqrt() / 2.0).powf(n as f64);
+    let second_term = (1.0 - (5.0 as f64).sqrt() / 2.0).powf(n as f64);
+    // let second = (1.0 + (5.0 as f64).sqrt() / 2.0);
+    let result = (first_term - second_term) * (1.0 / (5.0 as f64).sqrt());
+    // (n as f64).sqrt()
+    result as u64
 }
 
 fn main() {
-    for number in 1..10 {
-        println!("{}", fib(number));
+    for number in 1..100 {
+        print!("{}, ", binet(number));
     }
 }
 #+END_SRC
+
+1, 2, 4, 9, 19, 40, 85, 181, 383, 812, 1720, 3645, 7720, 16352, 34634, 73357, 155372, 329084, 697012, 1476296, 3126845, 6622765, 14027241, 29710174, 62927159, 133281861, 282295512, 597911491, 1266396860, 2682271594, 5681142404, 12032852707, 25485991015, 53980195207, 114331888169, 242158825139, 512900622322, 1086340950929, 2300907057438, 4873399352610, 10322025469580, 21862400777312, 46305307922020, 98076216038370, 207728759057245, 439976572124083, 931885334012477, 1973764811055976, 4180500955615072, 8854443113994140, 18754011466892048, 39721633712282632, 84131770291288288, 178193949010647232, 377420840594116544, 799390168440894848, 1693135547030318848, 3586118636170862080, 7595521159099303936, 16087571977241323520, 18446744073709551615, 18446744073709551615, 18446744073709551615, 18446744073709551615, 18446744073709551615, 18446744073709551615, 18446744073709551615, 18446744073709551615, 18446744073709551615, 18446744073709551615, 18446744073709551615, 18446744073709551615, 18446744073709551615, 18446744073709551615, 18446744073709551615, 18446744073709551615, 18446744073709551615, 18446744073709551615, 18446744073709551615, 18446744073709551615, 18446744073709551615, 18446744073709551615, 18446744073709551615, 18446744073709551615, 18446744073709551615, 18446744073709551615, 18446744073709551615, 18446744073709551615, 18446744073709551615, 18446744073709551615, 18446744073709551615, 18446744073709551615, 18446744073709551615, 18446744073709551615, 18446744073709551615, 18446744073709551615, 18446744073709551615, 18446744073709551615, 18446744073709551615, 
 
 ** Print the lyrics to the Christmas carol "The Twelve Days of Christmas", taking advantage of the repetition
 
