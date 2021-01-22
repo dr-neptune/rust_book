@@ -1,0 +1,498 @@
+* Understanding Ownership
+
+  Ownership is Rust's most unique feature, and it enables Rust to make memory safety guarantees without needing a garbage collector.
+  In this chapter, we will talk about ownership as well as several related features: borrowing, slices, and how Rust lays out data in memory.
+
+* What is Ownership?
+
+  Instead of manually allocating memory or having a garbage collector, Rust uses a third approach:
+
+  Memory is managed through a system of ownership with a set of rules that the compiler checks at compile time.
+  None of the ownership features slow down your program while its running.
+
+** The Stack and the Heap
+
+   Whether a value is on the stack or the heap has an effect on how the language behaves and why we have to make certain decisions.
+   Both the stack and heap are parts of memory that are available to your code to use at runtime, but they are structured in different ways.
+   The stack is a last in, first out data structure. All data stored on the stack must have a known, fixed size.
+   Data on the heap is less organized. Data with an unknown size at compile time or a size that might change must be stored on the heap instead.
+   When you put data on the heap, you request a certain amount of space. The memory allocator finds an empty spot in the heap that is big enough, marks it as being in use, and returns a pointer, which is the address at that location.
+   This process is called allocating on the heap, and is sometimes abbreviated as allocating.
+   Because the pointer is a known, fixed size, you can store the pointer on the stack -- but when you want to actual data, you must follow the pointer.
+
+   When your code calls a function, the values passed into the function (including, potentially, pointers to data on the heap) and the functions local variables get pushed onto the stack.
+   When the function is over, those values get popped off the stack.
+
+   Keeping track of what parts of code are using what data on the heap, minimizing the amount of duplicate data on the heap, and cleaning up unused data on the heap so that you don't run out of space are all problems that ownership addresses. 
+   
+** Ownership Rules
+
+   - Each value in Rust has a variable that is called it's owner
+   - There can only be one owner at a time
+   - When the owner goes out of scope, the value will be dropped
+
+** Variable Scope
+
+#+name:
+#+BEGIN_SRC rust
+fn main() { // s is not valid here
+    let s = "hello"; // s is valid from this point forward
+    // do stuff with s
+} // scope is over
+#+END_SRC
+
+The relationship between scopes and when variables are valid is similar to that in other programming languages currently.
+
+** The String Type
+
+We want to look at data that is stored on the heap and explore how Rust knows when to clean up that data.
+We'll use String as the example here and concentrate on the parts of String that relate to ownership.
+
+string literals are immutable and not every literal can be known when we write our code (for example, we could allow user input)
+
+#+name:
+#+BEGIN_SRC rust
+fn main() {
+    // allocates to heap and can store unknown amounts of text at compile time
+    let mut s = String::from("hello");
+
+    // mutate the string
+    s.push_str(", world!");
+    println!("{}", s);
+}
+#+END_SRC
+
+The String type can be mutated when literals cannot because of how the two types deal with memory.
+
+** Memory and Allocation
+
+   String literals are known at compile time, so the text is hardcoded directly into the final executable.
+   With the String type, we need to allocate an amount of memory on the heap, unknown at compile time, to hold the contents. This means:
+   - The memory must be requested from the memory allocator at runtime
+   - We need a way of returning this memory to the allocator when we're done with our string
+
+   In order to address number 2, usually we either have a garbage collector handle it, or we deal with cleanup ourselves. The latter is very error-prone.
+
+   Rust takes a different path: the memory is automatically returned once the variable that owns it goes out of scope. When this happens, Rust calls a special function drop.
+   Rust calls drop automatically at the closing curly bracket. The author of String implements this.
+
+   This has a profound impact on the way Rust code is written.
+
+   
+** Ways Variables and Data Interact: Move
+
+Multiple variables can interact with the same data in different ways in Rust. 
+   
+#+name:
+#+BEGIN_SRC rust
+fn main() {
+    // straight-forward
+    let x = 5;
+    let y = x;
+    // String version
+    // When we assign s1 to s2, the String pointer, len, and capacity are copied, but not the data. We just add a second pointer pointing to the item in memory
+    let s1 = String::from("hello");
+    let s2 = s1;
+    // when s1 and s2 go out of scope, they will both try to free the same memory. This is known as a double free error
+    // to ensure memory safety, rust considers s1 to be no longer valid
+    println!("{}, world!", s1);
+}
+#+END_SRC
+
+Since Rust invalidates the first variable, instead of being called a shallow copy (which would just copy the pointer, length, and capacity, but not the data) it is known as a move.
+In this case, we say that s1 was moved into s2. In addition, there is a design choice implied by this. Rust will never automatically create "deep" copies of our data. Therefore, any
+automatic copying can be assumed to be inexpensive in terms of runtime performance.
+
+** Ways Variables and Data Interact: Clone
+
+   If we want to do a deep copy of the heap data of the String, not just the stack data, we can use a common method called clone.
+
+#+name:
+#+BEGIN_SRC rust
+fn main() {
+    let s1 = String::from("hello");
+    let mut s2 = s1.clone();
+    s2.push_str(", you know what time it is");
+
+    println!("s1 = {}, s2 = {}", s1, s2);
+}
+#+END_SRC
+
+** Stack Only Data: Copy
+
+#+name:
+#+BEGIN_SRC rust
+fn main() {
+    let x = 5;
+    let y = x;
+
+    println!("x = {}, y = {}", x, y);
+}
+#+END_SRC
+
+This code doesn't have to call clone, but x is still valid and wasn't moved into y.
+This is because types like integers that have a known size at compile time are stored entirely on the stack, so copies of the actual values are quick to make.
+
+Rust has a special annotation called the Copy traint that we can place on types like integers that are stored on the stack. If a type has the Copy trait, an older variable is still usable after assignment.
+Rust won't let us annotate a type with the Copy trait if the type, or any of its parts, has implemented the Drop trait.
+
+Here are some Copy types:
+- any group of simple scalar values
+- nothing that requires allocation or is some form of resource
+- all the integer types
+- the boolean type
+- the floating point types
+- the character type
+- Tuples if they contain types that are also Copy (i.e. (i32, i32) is, (i32, String) is not)
+
+** Ownership and Functions
+
+The semantics for passing a value to a function are similar to those for assigning a value to a variable. Passing a var to a function will move or copy, just as assignment does. 
+   
+#+name:
+#+BEGIN_SRC rust
+fn takes_ownership(some_string: String) {
+    // some_string comes into scope
+    println!("{}", some_string);
+} // drop is called on some_string
+
+fn makes_copy(some_integer: i32) {
+    // some_integer comes into scope
+    println!("{}", some_integer);
+} // some_integer goes out of scope. Nothing special happens
+
+fn main() {
+    let s = String::from("hello"); // s comes into scope
+    takes_ownership(s); // s's value moves into the function and is invalidated by the next line
+    let x = 5; // x comes into scope
+    makes_copy(x); // x would move into the function, but i32 is Copy and its okay to still use x afterwards
+    println!("s = {}, x = {}", s, x);
+}
+#+END_SRC
+
+If you tried to use s after the call to takes_ownership, Rust would throw a compile time error like so:
+
+#+BEGIN_SRC 
+error[E0382]: borrow of moved value: `s`
+  --> src/main.rs:17:32
+   |
+13 |     let s = String::from("hello"); // s comes into scope
+   |         - move occurs because `s` has type `String`, which does not implement the `Copy` trait
+14 |     takes_ownership(s); // s's value moves into the function and is invalidated by the next line
+   |                     - value moved here
+...
+17 |     println!("s = {}, x = {}", s, x);
+   |                                ^ value borrowed here after move
+
+error: aborting due to previous error
+
+For more information about this error, try `rustc --explain E0382`.
+error: could not compile `cargoIbB29B`.
+
+To learn more, run the command again with --verbose.
+#+END_SRC
+
+** Return Values and Scope
+
+   Returning values can also transfer ownership.
+
+#+BEGIN_SRC rust
+// gives_ownership will move its return value into the function that calls it
+fn gives_ownership() -> String {
+    let some_string = String::from("hello"); // some_string comes into scope
+    some_string // returns some_string and moves out to the calling function
+}
+
+// takes_and_gives_back will take a String and return one
+fn takes_and_gives_back(a_string: String) -> String {
+    // a_string comes into scope
+    a_string // a_string is returned and moves out to the calling function
+}
+
+fn main() {
+    let s1 = gives_ownership(); // gives ownership moves its return value into s1
+    let s2 = String::from("hello"); // s2 comes into scope
+    let s3 = takes_and_gives_back(s2); // s2 is moved into our fn, which also moves its return value into s3
+}
+#+END_SRC
+
+The ownership of a variable follow the same pattern every time:
+- assigned a value to another variable moves it
+- when a variable that includes data on the heap goes out of scope, the value will be cleaned up by drop unless the data has been moved to be owned by another variable
+
+Taking ownership and then returning ownership with every function is a bit tedious. What if we want to let a function use a value, but not take ownership?
+We could return multiple values using a tuple:
+
+#+name:
+#+BEGIN_SRC rust
+fn calculate_length(s: String) -> (String, usize) {
+    let length = s.len();
+    (s, length)
+}
+
+fn main() {
+    let s1 = String::from("hello");
+    let (s2, len) = calculate_length(s1);
+    println!("The length of '{}' is {}.", s2, len);
+}
+#+END_SRC
+
+This is too much ceremony and a lot of work for a concept that should be common. Luckily, Rust has a feature for this concept called references
+
+* References and Borrowing
+
+  The issue with the tuple code is that we have to return the String to the calling function so we can still use the String after the call to calculate_length (since the String was moved into calculate_length()).
+
+#+name:
+#+BEGIN_SRC rust
+// use a reference to an object as a parameter instead of taking ownership of the value
+fn calculate_length(s: &String) -> usize { // s is a reference to a String
+    s.len()
+} // here, s goes out of scope. Since it doesn't have ownership of what it refers to, nothing happens
+
+fn main() {
+    let s1 = String::from("hello");
+    let len = calculate_length(&s1); // refers to s1, but does not own it. Since it doesn't own it, the value it points to will not be dropped when the reference is out of scope.
+    println!("The length of '{}' is {}.", s1, len);
+}
+#+END_SRC
+
+These ampersands are references, and they allow us to refer to some value without taking ownership of it.
+Essentially s is a pointer to s1, which has a pointer to its data ("hello")
+
+The opposite of referencing by using & is dereferencing by using *.
+
+We can't actually mutate something that we are referencing (borrowing)
+
+#+name:
+#+BEGIN_SRC rust
+fn change(some_string: &String) {
+    some_string.push_str(", world");
+}
+
+fn main() {
+    let s = String::from("hello");
+    change(&s);
+}
+#+END_SRC
+
+#+BEGIN_SRC rust
+error[E0596]: cannot borrow `*some_string` as mutable, as it is behind a `&` reference
+ --> src/main.rs:3:5
+  |
+2 | fn change(some_string: &String) {
+  |                        ------- help: consider changing this to be a mutable reference: `&mut String`
+3 |     some_string.push_str(", world");
+  |     ^^^^^^^^^^^ `some_string` is a `&` reference, so the data it refers to cannot be borrowed as mutable
+
+error: aborting due to previous error
+
+For more information about this error, try `rustc --explain E0596`.
+error: could not compile `cargoSCR0FK`.
+
+To learn more, run the command again with --verbose.
+#+END_SRC
+
+Just as variables are immutable by default, so are references. We're not allowed to modify something we have a reference to.
+
+** Mutable References
+
+   We can fix the error above with a small tweak:
+
+#+name:
+#+BEGIN_SRC rust
+fn change(some_string: &mut String) { // accept a mutable reference with &mut String
+    some_string.push_str(", world");
+}
+
+fn main() {
+    let mut s = String::from("hello"); // change s to be mut
+    change(&mut s); // use a mutable reference with &mut s
+}
+#+END_SRC
+
+Mutable references have one big restriction: you can only have one mutable reference to a particular piece of data in a particular scope.
+
+For example, this fails:
+
+#+name:
+#+BEGIN_SRC rust
+fn main() {
+    let mut s = String::from("hello");
+    let r1 = &mut s;
+    let r2 = &mut s;
+
+    println!("{}, {}", r1, r2);
+}
+#+END_SRC
+
+#+name:
+#+BEGIN_SRC rust
+error[E0499]: cannot borrow `s` as mutable more than once at a time
+ --> src/main.rs:5:14
+  |
+4 |     let r1 = &mut s;
+  |              ------ first mutable borrow occurs here
+5 |     let r2 = &mut s;
+  |              ^^^^^^ second mutable borrow occurs here
+6 | 
+7 |     println!("{}, {}", r1, r2);
+  |                        -- first borrow later used here
+
+error: aborting due to previous error
+
+For more information about this error, try `rustc --explain E0499`.
+error: could not compile `cargoSOhrdE`.
+
+To learn more, run the command again with --verbose.
+#+END_SRC
+
+This restricts mutation to one stream, allowing more control. The benefit to this restriction is that Rust can prevent data races at compile time.
+
+A data race is similar to a race condition and happens when these three behaviors occur:
+
+- two or more pointers access the same data at the same time
+- at least one of the pointers is being used to write data
+- there is no mechanism being used to synchronize access to the data
+
+We could ameliorate this by creating a new scope, just not simultaneous ones:
+
+#+name:
+#+BEGIN_SRC rust
+fn main() {
+    let mut s = String::from("hello");
+    {
+        let r1 = &mut s;
+        println!("Before r1 mut: {}", r1);
+        r1.push_str(", world!");
+        println!("After r1 mut: {}", r1);
+    } // r1 goes out of scope here
+    let r2 = &mut s;
+    println!("Before r2 mut: {}", r2);
+    r2.push_str(" How does it feel to be mutable?");
+    println!("After r2 mut: {}", r2);
+}
+#+END_SRC
+
+A similar rule exists for combining mutable and immutable references.
+
+This results in an error
+
+#+name:
+#+BEGIN_SRC rust
+fn main() {
+    let mut s = String::from("hello");
+
+    let r1 = &s; // sure
+    let r2 = &s; // no problem
+    let r3 = &mut s; // uh oh
+    println!("{}, {}, {}", r1, r2, r3);
+}
+#+END_SRC
+
+#+name:
+#+BEGIN_SRC rust
+error[E0502]: cannot borrow `s` as mutable because it is also borrowed as immutable
+ --> src/main.rs:7:14
+  |
+5 |     let r1 = &s; // sure
+  |              -- immutable borrow occurs here
+6 |     let r2 = &s; // no problem
+7 |     let r3 = &mut s; // uh oh
+  |              ^^^^^^ mutable borrow occurs here
+8 |     println!("{}, {}, {}", r1, r2, r3);
+  |                            -- immutable borrow later used here
+
+error: aborting due to previous error
+
+For more information about this error, try `rustc --explain E0502`.
+error: could not compile `cargobMvN2d`.
+
+To learn more, run the command again with --verbose.
+#+END_SRC
+
+We can not have a mutable reference when we have an immutable one. Multiple immutable references are okay because no one who is just reading the data has the ability to affect anyone elses reading of the data.
+
+Note that a references scope starts from where it is introduced and continues through the last time that reference is used.
+
+#+name:
+#+BEGIN_SRC rust
+fn main() {
+    let mut s = String::from("hello");
+
+    let r1 = &s;
+    let r2 = &s;
+    println!("{} and {}", r1, r2);
+    // r1, r2 no longer used after this point
+
+    let r3 = &mut s; // this works since r1,r2's scope is up!
+    println!("{}", r3);
+}
+#+END_SRC
+
+** Dangling References
+
+   In languages with pointers, its easy to erroneously create a dangling pointer (a pointer that references a location in memory that may have been given to someone else), by freeing some memory while preserving a pointer to that memory.
+   In Rust, if you have a reference to some data, the compiler will ensure that the data will not go out of scope before the reference to the data does.
+
+#+name: dangling-reference
+#+BEGIN_SRC rust
+fn dangle() -> &String {
+    let s = String::from("hello");
+    &s // return a reference to s
+} // here s goes out of scope, so there is nothing to point to!
+
+fn main() {
+    let reference_to_nothing = dangle();
+}
+#+END_SRC
+
+#+name:
+#+BEGIN_SRC rust
+error[E0106]: missing lifetime specifier
+ --> src/main.rs:2:16
+  |
+2 | fn dangle() -> &String {
+  |                ^ expected named lifetime parameter
+  |
+  = help: this function's return type contains a borrowed value, but there is no value for it to be borrowed from
+help: consider using the `'static` lifetime
+  |
+2 | fn dangle() -> &'static String {
+  |                ^^^^^^^^
+
+error: aborting due to previous error
+
+For more information about this error, try `rustc --explain E0106`.
+error: could not compile `cargoVw2IPr`.
+
+To learn more, run the command again with --verbose.
+#+END_SRC
+
+The solution is to return the String directly
+
+#+name:
+#+BEGIN_SRC rust
+fn dangle() -> String {
+    let s = String::from("hello");
+    s
+}
+
+fn main() {
+    let reference_to_nothing = dangle();
+    println!("Dang, dangle! {}", reference_to_nothing);
+}
+#+END_SRC
+
+#+RESULTS: 
+: Dang, dangle! hello
+
+** The Rules of References
+
+- At any given time, you can have either one mutable reference or any number of immutable references
+- References must always be valid
+
+* The Slice Type
+
+
+
