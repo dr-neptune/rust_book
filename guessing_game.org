@@ -44,14 +44,14 @@ fn main() {
     let mut guess = String::new();
     // call stdin from the io module
     io::stdin()
-    // call the read_line method on the stdin to get input from the user.
-    // read_line takes whatever the user types and places it into a string, so it takes a string as an argument.
-	// & means that this argument is a reference, which lets multiple parts of our code access it without copying it into memory multiple times 
-	// returns a value: io::Result which is either Ok or Err
+        // call the read_line method on the stdin to get input from the user.
+        // read_line takes whatever the user types and places it into a string, so it takes a string as an argument.
+        // & means that this argument is a reference, which lets multiple parts of our code access it without copying it into memory multiple times
+        // returns a value: io::Result which is either Ok or Err
         .read_line(&mut guess)
-	// if io::Result is an Err value, cause the program to crash. If Ok, then return value that Ok is holding. 
+        // if io::Result is an Err value, cause the program to crash. If Ok, then return value that Ok is holding.
         .expect("Failed to read line");
-    // print the string that we saved user input in 
+    // print the string that we saved user input in
     println!("You guessed: {}", guess);
 }
 #+END_SRC
@@ -65,9 +65,6 @@ fn main() {
     println!("x = {} and y = {}", x, y);
 }
 #+END_SRC
-
-#+RESULTS:
-: x = 5 and y = 10
 
 * Generating a Secret Number
 

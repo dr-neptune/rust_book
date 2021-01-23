@@ -241,7 +241,7 @@ This is too much ceremony and a lot of work for a concept that should be common.
 
 * References and Borrowing
 
-  The issue with the tuple code is that we have to return the String to the calling function so we can still use the String after the call to calculate_length (since the String was moved into calculate_length()).
+The issue with the tuple code is that we have to return the String to the calling function so we can still use the String after the call to calculate_length (since the String was moved into calculate_length()).
 
 #+name:
 #+BEGIN_SRC rust
@@ -484,9 +484,6 @@ fn main() {
 }
 #+END_SRC
 
-#+RESULTS: 
-: Dang, dangle! hello
-
 ** The Rules of References
 
 - At any given time, you can have either one mutable reference or any number of immutable references
@@ -494,5 +491,35 @@ fn main() {
 
 * The Slice Type
 
+  Another data type that does not have ownership is the **Slice**.
+  Slices let you reference a contiguous sequence of elements in a collection rather than the whole collection.
 
+  write a fn that takes a string and returns the first word it finds in that string. 
+#+name:
+#+BEGIN_SRC rust
+fn get_index(cvec: Vec<char>) -> usize {
+    let mut counter = 0;
+    for c in cvec {
+        if c.is_whitespace() {
+            return counter;
+        }
+        counter += 1;
+    }
+    println!("No spaces! String Size: {}", counter);
+    counter
+}
 
+fn main() {
+    let s = String::from("HelloWorld! ");
+    // let index_out = first_word(&s);
+    let index_out = get_index(s.chars().collect());
+
+    for i in 0..index_out {
+        print!("{:?}", String::from(s.chars().nth(i).unwrap()));
+    }
+    // println!("{:?}", s.chars().nth().expect("message"));
+}
+#+END_SRC
+
+#+RESULTS: 
+: "H""e""l""l""o""W""o""r""l""d""!"
