@@ -1,0 +1,280 @@
+* Let's build a browser engine!
+
+  All glory to [[https://limpet.net/mbrubeck/2014/08/08/toy-layout-engine-1.html][Matt Brubeck's Blog]]
+
+  This may take longer than a day, so here is an outline of the series:
+
+  1. Getting Started
+  2. HTML
+  3. CSS
+  4. Style
+  5. Boxes
+  6. Block Layout
+  7. Painting 101
+
+  A browser engine is the portion of a web browser that fetches a web page from the internet and translates its contents into forms you can read, watch, hear, etc.
+
+  Blink, Gecko, Webkit, and Trident are browser engines, whereas the UI (tabs, toolbar, menu, etc) is called the chrome.
+
+  A browser engine includes many subcomponents: a HTTP client, a HTML parser, a CSS parser, a JavaScript engine (itself composed to parsers, interpreters, and compilers), and much more.
+  These components involved in parsing web formats like HTML and CSS and translating them into what we see on screen are sometimes called the layout engine or rendering engine.
+
+* The DOM
+
+  The DOM is a tree of nodes. A node has zero or more children.
+
+#+name: dom-node
+#+BEGIN_SRC rust :tangle browser_engine/src/dom.rs
+use std::collections::{HashMap, HashSet};
+pub type AttrMap = HashMap<String, String>;
+
+pub struct Node {
+    // data common to all nodes
+    children: Vec<Node>,
+    // data specific to each node type
+    node_type: NodeType,
+}
+
+// there are several node types. We will just use Element or Text here
+// enums allow you to define a type by enumerating its possible variants
+pub enum NodeType {
+    Text(String),
+    Element(ElementData),
+}
+
+// an element includes a tag name and any number of attributes, which can be stored as a map from names to values.
+// we don't have namespaces, so we just store tag and attribute names as simple strings
+pub struct ElementData {
+    tag_name: String,
+    attributes: AttrMap,
+}
+
+// constructor functions to make it easy to create new nodes
+pub fn text(data: String) -> Node {
+    Node {
+	children: Vec::new(),
+	node_type: NodeType::Text(data)
+    }
+}
+
+pub fn elem(name: String, attrs: AttrMap, children: Vec<Node>) -> Node {
+    Node {
+	children: children,
+	node_type: NodeType::Element(ElementData {
+	    tag_name: name,
+	    attributes: attrs,
+	})
+    }
+}
+
+impl ElementData {
+    pub fn id(&self) -> Option<&String> {
+	self.attributes.get("id")
+    }
+
+    pub fn classes(&self) -> HashSet<&str> {
+	match self.attributes.get("class") {
+	    Some(classList) => classList.split(' ').collect(),
+	    None => HashSet::new()
+	}
+    }
+}
+#+END_SRC
+
+* HTML
+
+  This part is about parsing HTML source code to produce a tree of DOM nodes.
+
+  HTML has its own unique parsing algorithm. Unlike other language parsers, the HTML parsing algorithm does not reject invalid input. Instead, it includes specific error handling instructions, so web browsers can agree on how to display every web page, even ones that don't conform to the syntax rules.
+
+** A Simple HTML Dialect
+
+   The parser can handle simple pages like this:
+   
+#+name:
+#+BEGIN_SRC html
+<html>
+  <body>
+    <h1>Title</h1>
+    <div id="main" class="test">
+      <p>Hello <em>World</em>!</p>
+    </div>
+  </body>
+</html>
+#+END_SRC
+
+It allows:
+- balanced tags
+- attributes with quoted values, i.e. id="main"
+- text nodes, i.e. <em>world</em>
+
+everything else is not supported.
+
+#+name: html-parser
+#+BEGIN_SRC rust :tangle browser_engine/src/html.rs
+use crate::dom::*;
+use std::collections::HashMap;
+
+// the parser stores its input string and a current position within the string
+struct Parser {
+    pos: usize,
+    input: String,
+}
+
+// peek at the next character in the input
+impl Parser {
+    // read the current char without consuming it
+    fn next_char(&self) -> char {
+	self.input[self.pos..].chars().next().unwrap()
+    }
+
+    // do the next chars start with the given string?
+    fn starts_with(&self, s: &str) -> bool {
+	self.input[self.pos..].starts_with(s)
+    }
+
+    // return true is all input is consumed
+    fn eof(&self) -> bool {
+	self.pos >= self.input.len()
+    }
+
+    // return the current character, and advanced self.pos to the next character
+    fn consume_char(&mut self) -> char {
+	// consume_char correctly handles multibyte characters (since Strings are stored as UTF-8 byte arrays)
+	let mut iter = self.input[self.pos..].char_indices();
+	let (_, cur_char) = iter.next().unwrap();
+	let (next_pos, _) = iter.next().unwrap_or((1, ' '));
+	self.pos += next_pos;
+	return cur_char;
+    }
+
+    // consume characters that meet a given condition, and return them as a string
+    fn consume_while<F>(&mut self, test: F) -> String
+    where F: Fn(char) -> bool {
+	let mut result = String::new();
+	while !self.eof() && test(self.next_char()) {
+	    result.push(self.consume_char());
+	}
+	return result;
+    }
+
+    // we can use this to ignore a sequence of space characters, or to consume a string of alphanumeric characters.
+    fn consume_whitespace(&mut self) {
+	self.consume_while(char::is_whitespace);
+    }
+    
+    // parse a tag or attribute name
+    fn parse_tag_name(&mut self) -> String {
+	self.consume_while(|c| match c {
+	    'a'..='z' | 'A'..='Z' | '0'..='9' => true,
+	    _ => false
+	})
+    }
+    
+    // parse a single node
+    // check if element or a text node.
+    fn parse_node(&mut self) -> Node {
+	match self.next_char() {
+	    '<' => self.parse_element(),
+	    _   => self.parse_text()
+	}
+    }
+
+    // parse a text node
+    fn parse_text(&mut self) -> Node {
+	text(self.consume_while(|c| c != '<'))
+    }
+
+    // parse a single element
+    // contains opening and closing tags, and between them any number of child nodes
+    fn parse_element(&mut self) -> Node {
+	// Opening tag
+	assert_eq!(self.consume_char(), '<');
+	let tag_name = self.parse_tag_name();
+	let attrs = self.parse_attributes();
+	assert_eq!(self.consume_char(), '>');
+
+	// contents of the element
+	let children = self.parse_nodes();
+
+	// closing tag
+	assert_eq!(self.consume_char(), '<');
+	assert_eq!(self.consume_char(), '/');
+	assert_eq!(self.parse_tag_name(), tag_name);
+	assert_eq!(self.consume_char(), '>');
+
+	elem(tag_name, attrs, children)
+    }
+
+    // parsing attributes
+    // until we reach the end of the opening tag, we repeatedly look for a name followed by = and then a string enclosed in quotes
+    fn parse_attr(&mut self) -> (String, String) {
+	let name = self.parse_tag_name();
+	assert_eq!(self.consume_char(), '=');
+	let value = self.parse_attr_value();
+	(name, value)
+    }
+
+    // parse a quoted value
+    fn parse_attr_value(&mut self) -> String {
+	let open_quote = self.consume_char();
+	assert!(open_quote == '"' || open_quote == '\'');
+	let value = self.consume_while(|c| c != open_quote);
+	assert_eq!(self.consume_char(), open_quote);
+	value
+    }
+    
+    // parse a list of name="value" pairs, separated by whitespace
+    fn parse_attributes(&mut self) -> AttrMap {
+	let mut attributes = HashMap::new();
+	loop {
+	    self.consume_whitespace();
+	    if self.next_char() == '>' {
+		break;
+	    }
+	    let (name, value) = self.parse_attr();
+	    attributes.insert(name, value);
+	}
+	attributes
+    }
+
+    // to parse the child nodes, we recursively call parse_node in a loop until we reach the closing tag
+    fn parse_nodes(&mut self) -> Vec<Node> {
+	let mut nodes = Vec::new();
+	loop {
+	    self.consume_whitespace();
+	    if self.eof() || self.starts_with("</") {
+		break;
+	    }
+	    nodes.push(self.parse_node());
+	}
+	return nodes;
+    }
+}
+
+// put it all together to parse an entire HTML document into a DOM tree
+// creates a root node for the document if it doesn't include one explicitly.
+pub fn parse(source: String) -> Node {
+    let mut nodes = Parser {
+	pos: 0,
+	input: source
+    }.parse_nodes();
+
+    // if the document contains a root element, return it. otherwise create it
+    if nodes.len() == 1 {
+	nodes.swap_remove(0)
+    } else {
+	elem("html".to_string(), HashMap::new(), nodes)
+    }
+}
+#+END_SRC
+
+#+name: main-fn
+#+BEGIN_SRC rust :tangle browser_engine/src/main.rs
+mod dom;
+mod html;
+
+fn main() {
+    println!("Nothing, yet");
+}
+#+END_SRC
