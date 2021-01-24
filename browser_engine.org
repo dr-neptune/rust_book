@@ -30,9 +30,9 @@ pub type AttrMap = HashMap<String, String>;
 
 pub struct Node {
     // data common to all nodes
-    children: Vec<Node>,
+    pub children: Vec<Node>,
     // data specific to each node type
-    node_type: NodeType,
+    pub node_type: NodeType,
 }
 
 // there are several node types. We will just use Element or Text here
@@ -45,8 +45,8 @@ pub enum NodeType {
 // an element includes a tag name and any number of attributes, which can be stored as a map from names to values.
 // we don't have namespaces, so we just store tag and attribute names as simple strings
 pub struct ElementData {
-    tag_name: String,
-    attributes: AttrMap,
+    pub tag_name: String,
+    pub attributes: AttrMap,
 }
 
 // constructor functions to make it easy to create new nodes
@@ -269,12 +269,557 @@ pub fn parse(source: String) -> Node {
 }
 #+END_SRC
 
+* CSS
+  
+Next we look at CSS. Here is an example of CSS source code:
+
+#+name: css-example
+#+BEGIN_SRC css
+h1, h2, h3 { margin: auto; color: #cc0000; }
+div.note { margin-bottom: 20px; padding: 10px; }
+#answer { display: none; }
+#+END_SRC
+
+and now the CSS module:
+
+#+name: css
+#+BEGIN_SRC rust :tangle browser_engine/src/css.rs 
+// a CSS stylesheet is a series of rules.
+pub struct Stylesheet {
+    pub rules: Vec<Rule>,
+}
+
+// a rule includes one or more selectors separated by commas, followed by a series of declarations enclosed in braces
+
+pub struct Rule {
+    pub selectors: Vec<Selector>,
+    pub declarations: Vec<Declaration>,
+}
+
+// a simple selector can include a tag name, an ID prefixed by '#', any number of class names prefixed by '.', or some combination of the above.
+pub enum Selector {
+    Simple(SimpleSelector),
+}
+
+pub struct SimpleSelector {
+    pub tag_name: Option<String>,
+    pub id: Option<String>,
+    pub class: Vec<String>,
+}
+
+// a declaration is just a name/value pair, separated by a colon and ending with a semi-colon
+pub struct Declaration {
+    pub name: String,
+    pub value: Value,
+}
+
+// support a handful of CSS value types
+pub enum Value {
+    Keyword(String),
+    Length(f32, Unit),
+    ColorValue(Color),
+}
+
+pub enum Unit {
+    Px,
+}
+
+pub struct Color {
+    r: u8,
+    g: u8,
+    b: u8,
+    a: u8,
+}
+
+// impl Copy for Color {}
+
+// specificity is one of the ways a rendering engine decides which style overrides the other in a conflict.
+// if a stylesheet contains two rules that match an element, the rule with the matching selector of higher specificity
+// can override values from the one with lower specificity
+pub type Specificity = (usize, usize, usize);
+
+impl Selector {
+    pub fn specificity(&self) -> Specificity {
+	let Selector::Simple(ref simple) = *self;
+	let a = simple.id.iter().count();
+	let b = simple.class.len();
+	let c = simple.tag_name.iter().count();
+	(a, b, c)
+    }
+}
+
+// this was on the github file, but not in the tutorial
+impl Value {
+    // return the size of a length in px, or zero for non-lengths.
+    pub fn to_px(&self) -> f32 {
+	match *self {
+	    Value::Length(f, Unit::Px) => f,
+	    _ => 0.0
+	}
+    }
+}
+ 
+// parsing
+// CSS has a regular grammar, making it easier to parse correctly than HTML
+struct Parser {
+    pos: usize,
+    input: String,
+}
+
+impl Parser {
+    // Parse a list of rule sets, separated by optional whitespace.
+    fn parse_rules(&mut self) -> Vec<Rule> {
+	let mut rules = Vec::new();
+	loop {
+	    self.consume_whitespace();
+	    if self.eof() { break }
+	    rules.push(self.parse_rule());
+	}
+	rules
+    }
+
+    // parse a ruleset: `<selectors> { <declarations> }`.
+    fn parse_rule(&mut self) -> Rule {
+	Rule {
+	    selectors: self.parse_selectors(),
+	    declarations: self.parse_declarations(),
+	}
+    }
+
+    // parse a comma separated list of selectors
+    fn parse_selectors(&mut self) -> Vec<Selector> {
+	let mut selectors = Vec::new();
+	loop {
+	    selectors.push(Selector::Simple(self.parse_simple_selector()));
+	    self.consume_whitespace();
+	    match self.next_char() {
+		',' => { self.consume_char(); self.consume_whitespace(); }
+		'{' => break, // start of declarations
+		c => panic!("Unexpected cahracter {} in selector list", c)
+	    }
+	}
+	// return selectors with highest specificity first, for use in matching
+	selectors.sort_by(|a,b| b.specificity().cmp(&a.specificity()));
+	return selectors;
+    }
+    
+    // parse one simple selector, e.g: `type#id.class1.class2.class3`
+    fn parse_simple_selector(&mut self) -> SimpleSelector {
+	let mut selector = SimpleSelector { tag_name: None, id: None, class: Vec::new() };
+	while !self.eof() {
+	    match self.next_char() {
+		'#' => {
+		    self.consume_char();
+		    selector.id = Some(self.parse_identifier());
+		}
+		'.' => {
+		    self.consume_char();
+		    selector.class.push(self.parse_identifier());
+		}
+		'*' => {
+		    // universal selector
+		    self.consume_char();
+		}
+		c if valid_identifier_char(c) => {
+		    selector.tag_name = Some(self.parse_identifier());
+		}
+		_ => break
+	    }
+	}
+	selector
+    }
+
+    // parse a list of declarations enclosed in `{ ... }`
+    fn parse_declarations(&mut self) -> Vec<Declaration> {
+	assert_eq!(self.consume_char(), '{');
+	let mut declarations = Vec::new();
+	loop {
+	    self.consume_whitespace();
+	    if self.next_char() == '}' {
+		self.consume_char();
+		break;
+	    }
+	    declarations.push(self.parse_declaration());
+	}
+	declarations
+    }
+
+    // parse one `<property>: <value>;` declaration.
+    fn parse_declaration(&mut self) -> Declaration {
+	let property_name = self.parse_identifier();
+	self.consume_whitespace();
+	assert_eq!(self.consume_char(), ':');
+	self.consume_whitespace();
+	let value = self.parse_value();
+	self.consume_whitespace();
+	assert_eq!(self.consume_char(), ';');
+
+	Declaration {
+	    name: property_name,
+	    value: value,
+	}
+    }
+
+    // methods for parsing values
+    fn parse_value(&mut self) -> Value {
+	match self.next_char() {
+	    '0'..='9' => self.parse_length(),
+	    '#' => self.parse_color(),
+	    _ => Value::Keyword(self.parse_identifier())
+	}
+    }
+
+    fn parse_length(&mut self) -> Value {
+	Value::Length(self.parse_float(), self.parse_unit())
+    }
+
+    fn parse_float(&mut self) -> f32 {
+	let s = self.consume_while(|c| match c {
+	    '0'..='9' | '.' => true,
+	    _ => false
+	});
+	s.parse().unwrap()
+    }
+
+    fn parse_unit(&mut self) -> Unit {
+	match &*self.parse_identifier().to_ascii_lowercase() {
+	    "px" => Unit::Px,
+	    _ => panic!("unrecognized unit")
+	}
+    }
+
+    fn parse_color(&mut self) -> Value {
+	assert_eq!(self.consume_char(), '#');
+	Value::ColorValue(Color {
+	    r: self.parse_hex_pair(),
+	    g: self.parse_hex_pair(),
+	    b: self.parse_hex_pair(),
+	    a: 255
+	})
+    }
+
+    // parse 2 hexadecimal digits
+    fn parse_hex_pair(&mut self) -> u8 {
+	let s = &self.input[self.pos .. self.pos + 2];
+	self.pos += 2;
+	u8::from_str_radix(s, 16).unwrap()
+    }
+
+    // parse a property name or keyword
+    fn parse_identifier(&mut self) -> String {
+	self.consume_while(valid_identifier_char)
+    }
+
+    // consume and discard zero or more whitespace characters
+    fn consume_whitespace(&mut self) {
+	self.consume_while(char::is_whitespace);
+    }
+
+    // consume characters until `test` returns false
+    fn consume_while<F>(&mut self, test: F) -> String
+    where F: Fn(char) -> bool {
+	let mut result = String::new();
+	while !self.eof() && test(self.next_char()) {
+	    result.push(self.consume_char());
+	}
+	result
+    }
+
+    // return the current character and advance self.pos to the next character
+    fn consume_char(&mut self) -> char {
+	let mut iter = self.input[self.pos..].char_indices();
+	let (_, cur_char) = iter.next().unwrap();
+	let (next_pos, _) = iter.next().unwrap_or((1, ' '));
+	self.pos += next_pos;
+	cur_char
+    }
+
+    // read the current character without consuming it
+    fn next_char(&self) -> char {
+	self.input[self.pos..].chars().next().unwrap()
+    }
+
+    // return true if all input is consumed
+    fn eof(&self) -> bool {
+	self.pos >= self.input.len()
+    }
+}
+
+fn valid_identifier_char(c: char) -> bool {
+    match c {
+	'a'..='z' | 'A'..='Z' | '0'..='9' | '-' | '_' => true,
+	_ => false,
+    }
+}
+#+END_SRC
+
+* Style
+  
+In this next section, style, we cover what the CSS standard calls assigning property values. This module takes DOM nodes and CSS rules as input, and matches them up to determine the value of each CSS property for any given node.
+
+A browser engine often takes on tree as input, and produces a different but related tree as output. Later stages in the engines produce more trees, including layer trees and widget trees.
+
+The pipeline for the toy browser engine will look something like this after we complete a few more stages:
+
+https://limpet.net/mbrubeck/images/2014/pipeline.svg
+
+In this implementation, each node in the DOM tree has exactly one node in the style tree. 
+
+#+name: style
+#+BEGIN_SRC rust :tangle browser_engine/src/style.rs
+use crate::dom::*;
+use crate::css::*;
+use std::collections::HashMap;
+
+// Map from CSS property names to values
+type PropertyMap = HashMap<String, Value>;
+
+// A node with associated style data
+struct StyledNode<'a> { // the 'a is a lifetime, part of how Rust guarantees that pointers are memory safe without requiring garbage collection 
+    node: &'a Node, // pointer to a DOM node
+    specified_values: PropertyMap,
+    children: Vec<StyledNode<'a>>,
+}
+
+pub enum Display {
+    Inline,
+    Block,
+    None,
+}
+
+impl<'a> StyledNode<'a> {
+    // return the specified value of a property if it exists, otherwise `None`.
+    pub fn value(&self, name: &str) -> Option<Value> {
+	self.specified_values.get(name).clone()
+    }
+
+    // Return the specified value of property `name` or property `fallback_name` if that doesn't exist, or value `default` if neither does
+    pub fn lookup(&self, name: &str, fallback_name: &str, default: &Value) -> Value {
+	self.value(name).unwrap_or_else(|| self.value(fallback_name)
+					.unwrap_or_else(|| default.clone()))
+    }
+
+    // The value of the `display` property (defaults to inline)
+    pub fn display(&self) -> Display {
+	match self.value("display") {
+	    Some(Value::Keyword(s)) => match &*s {
+		"block" => Display::Block,
+		"none" => Display::None,
+		_ => Display::Inline
+	    },
+	    _ => Display::Inline
+	}
+    }
+}
+
+// the first step in building the style tree is selector matching
+// we can tell whether a simple selector matches an element just by looking at the element itself
+fn matches(elem: &ElementData, selector: &Selector) -> bool {
+    match *selector {
+	Selector::Simple(ref simple_selector) => matches_simple_selector(elem, simple_selector)
+    }
+}
+
+// test whether a simple selector matches an element
+// look at each selector component, and return false if the element doesn't have a matching class, ID, or tag name
+fn matches_simple_selector(elem: &ElementData, selector: &SimpleSelector) -> bool {
+    // Check type selector
+    if selector.tag_name.iter().any(|name| elem.tag_name != *name) {
+	return false
+    }
+
+    // Check ID selector
+    if selector.id.iter().any(|id| elem.id() != Some(id)) {
+	return false
+    }
+
+    // Check class selectors
+    let elem_classes = elem.classes();
+    if selector.class.iter().any(|class| !elem_classes.contains(&**class)) {
+	return false
+    }
+
+    // didn't find any non matching selector components
+    true
+}
+
+
+// we need to traverse the DOM tree. For each element in the tree, we search the stylesheet for matching rules
+// when comparing 2 rules that match the same element, we need to use the highest specificity selector from each match
+// A single CSS rule and the specificity of its most specific matching selector
+type MatchedRule<'a> = (Specificity, &'a Rule);
+
+// if `rule` matches `elem`, return a `MatchedRule`. Otherwise, return `None`
+fn match_rule<'a>(elem: &ElementData, rule: &'a Rule) -> Option<MatchedRule<'a>> {
+    // Find the first (highest specificity) matching selector
+    rule.selectors.iter()
+	.find(|selector| matches(elem, *selector))
+	.map(|selector| (selector.specificity(), rule))
+}
+
+// to find all the rules that match an element, we call filter_map, which does a linear scan through the style sheet, checking every rule and throwing out ones which don't match.
+// find all CSS rules that match the given element
+fn matching_rules<'a>(elem: &ElementData, stylesheet: &'a Stylesheet) -> Vec<MatchedRule<'a>> {
+    stylesheet.rules.iter().filter_map(|rule| match_rule(elem, rule)).collect()
+}
+
+// once we have matching rules, we can find the specified values for the element.
+// we insert each rules property values into a HashMap. We sort the matches by specificity, so the more specific rules are processed after the less specific ones, and can overwrite their values in the HashMap
+// Apply styles to a single element, returning the specified values
+fn specified_values(elem: &ElementData, stylesheet: &Stylesheet) -> PropertyMap {
+    let mut values = HashMap::new();
+    let mut rules = matching_rules(elem, stylesheet);
+
+    // Go through the rules from lowest to highest specificity
+    rules.sort_by(|&(a, _), &(b, _)| a.cmp(&b));
+    for (_, rule) in rules {
+	for declaration in &rule.declarations {
+	    values.insert(declaration.name.clone(), declaration.value.clone());
+	}
+    }
+    values
+}
+
+// now we have everything we need to walk through the DOM tree and build the style tree.
+// Apply a stylesheet to an entire DOM tree, returning a StyledNode tree
+pub fn style_tree<'a>(root: &'a Node, stylesheet: &'a Stylesheet) -> StyledNode<'a> {
+    StyledNode {
+	node: root,
+	specified_values: match root.node_type {
+	    NodeType::Element(ref elem) => specified_values(elem, stylesheet),
+	    NodeType::Text(_) => HashMap::new()
+	},
+	children: root.children.iter().map(|child| style_tree(child, stylesheet)).collect(),
+    }
+}
+#+END_SRC
+
+* Boxes
+
+  This section begins the layout module, which takes the style tree and translates it into a bunch of rectangles in a two dimensional space.
+
+  The layout module's input is the style tree, and its output is another tree -- the layout tree.
+
+  Layout is all about boxes. A box is a rectangular section of a web page. It has a width, a height, and a position on the page. This rectangle is called the content area,
+  because its where the box's content is drawn. A box may also have padding, borders, and margins surrounding its content area.
+
+#+name: layout
+#+BEGIN_SRC rust
+use crate::style::{StyledNode, Display};
+use crate::css::Value::{Keyword, Length};
+use crate::css::Unit::Px;
+use std::default::Default;
+
+pub use self::BoxType::{AnonymousBlock, InlineNode, BlockNode};
+
+// CSS box model. All sizes are in px.
+pub struct Dimensions {
+    // position of the content area relative to the document origin:
+    content: Rect,
+    // Surrounding edges:
+    padding: EdgeSizes,
+    border: EdgeSizes,
+    margin: EdgeSizes,
+}
+
+pub struct Rect {
+    x: f32,
+    y: f32,
+    width: f32,
+    height: f32,
+}
+
+pub struct EdgeSizes {
+    left: f32,
+    right: f32,
+    top: f32,
+    bottom: f32,
+}
+
+// The Layout Tree is a collection of boxes. A box has dimensions, and it may contain child boxes.
+pub struct LayoutBox<'a> {
+    dimensions: Dimensions,
+    box_type: BoxType<'a>,
+    children: Vec<LayoutBox<'a>>,
+}
+
+// a block can be a block node, an inline node, or an anonymous block box
+pub enum BoxType<'a> {
+    BlockNode(&'a StyledNode<'a>),
+    InlineNode(&'a StyledNode<'a>),
+    AnonymousBlock,
+}
+
+// now we can walk through the style tree, build a LayoutBox for each node, and then insert boxes for the node's children.
+fn build_layout_tree<'a>(style_node: &'a StyledNode<'a>) -> LayoutBox<'a> {
+    // Create the root box
+    let mut root = LayoutBox::new(match style_node.display() {
+	Block => BlockNode(style_node),
+	Inline => InlineNode(style_node),
+	DisplayNone => panic!("Root node has display: none.")
+    });
+
+    // Create the descendant boxes
+    for child in &style_node.children {
+	match child.display() {
+	    Block => root.children.push(build_layout_tree(child)),
+	    Inline => root.get_inline_container().children.push(build_layout_tree(child)),
+	    DisplayNone => {} // Skip nodes with `display: none;`
+	}
+    }
+    root
+}
+
+impl<'a> LayoutBox<'a> {
+    // Constructor function
+    fn new(box_type: BoxType) -> LayoutBox {
+	LayoutBox {
+	    box_type: box_type,
+	    dimensions: Default::default(), // initially set all fields to 0.0
+	    children: Vec::new(),
+	}
+    }
+
+    fn get_style_node(&self) -> &'a StyledNode<'a> {
+	match self.box_type {
+	    BlockNode(node) | InlineNode(node) => node,
+	    AnonymousBlock => panic!("Anonymous block box has no style node")
+	}
+    }
+
+    // if a block node contains an inline child, create an anonymous block box to contain it.
+    // if there are several inline children in a row, put them all in the same anonymous container
+    fn get_inline_container(&mut self) -> &mut LayoutBox {
+	match self.box_type {
+	    InlineNode(_) | AnonymousBlock => self,
+	    BlockNode(_) => {
+		// if we've just generated an anonymous block box, keep using it. otherwise create a new one
+		match self.children.last() {
+		    Some(&LayoutBox { box_type: AnonymousBlock, ..}) => {}
+		    _ => self.children.push(LayoutBox::new(AnonymousBlock))
+		}
+		self.children.last_mut().unwrap()
+	    }
+	}
+    }
+}
+
+#+END_SRC
+  
+* Main
+
 #+name: main-fn
 #+BEGIN_SRC rust :tangle browser_engine/src/main.rs
 mod dom;
 mod html;
+mod css;
+mod style;
 
 fn main() {
+    let file = String::from("<html><body>Hello, World!</body></html>");
+    let root = html::parse(file);
+
     println!("Nothing, yet");
 }
 #+END_SRC
+
