@@ -802,6 +802,75 @@ impl<'a> LayoutBox<'a> {
 	    }
 	}
     }
+
+    // this takes a LayoutBox and calculates its dimensions
+    fn layout(&mut self, containing_block: Dimensions) {
+	match self.box_type {
+	    BlockNode(_) => self.layout_block(containing_block),
+	    InlineNode(_) | AnonymousBlock => {} // TODO
+	}
+    }
+
+    // A blocks layout depends on the dimensions of its containing block. For block boxes in normal flow, this is just the boxes parent
+    // For the root element, its the size of the browser window (or viewport)
+    // A blocks width depends on its parent, and a blocks height depends on its children.
+    // therefore our code needs to traverse the tree top-down while calculating widths, so it can lay out the children after the parent's width is known
+    // and traverse bottom up to calculate heights, so that a parent's height is calculated after its childrens
+    fn layout_block(&mut self, containing_block: Dimensions) {
+	// child width can depend on parent width, so we must calc this box's width before laying out its children
+	self.calculate_block_width(containing_block);
+
+	// determine where the box is located within its container
+	self.calculate_block_position(containing_block);
+
+	// recursively lay out the children of this box
+	self.layout_block_children();
+
+	// parent height can depend on child height, so calculate_height must be called *after* the children are laid out
+	self.calculate_block_height();
+    }
+
+    // calculate block width
+    fn calculate_block_width(&mut self, containing_block: Dimensions) {
+	let style = self.get_style_node();
+
+	// width has initial value auto
+	let auto = Keyword("auto".to_string());
+	let mut width = style.value("width").unwrap_or(auto.clone());
+
+	// margin, border, and padding have initial value 0
+	let zero = length(0.0, Px);
+
+	// lookup tries a series of values in sequence. If the first property isn't set, it tries the second one, if not then etc or default.
+	let mut margin_left = style.lookup("margin-left", "margin", &zero);
+	let mut margin_right = style.lookup("margin-right", "margin", &zero);
+
+	let mut border_left = style.lookup("border-left-width", "border-width", &zero);
+	let mut border_right = style.lookup("border-right-width", "border-width", &zero);
+
+	let mut padding_left = style.lookup("padding-left", "padding", &zero);
+	let mut padding_right = style.lookup("padding-right", "padding", &zero);
+
+	// since a child can't change its parent's width, it needs to make sure its own width fits the parents.
+	// The CSS spec expresses this as a set of constaints and an algorithm for solving them
+	// the following code implements that algorithm
+	// first we add the margin, padding, border, and content widths
+	let total = [&margin_left, &margin_right,
+		     &border_left, &border_right,
+		     &padding_left, &padding_right, &width]
+	    .iter().map(|v| v.to_px()).sum();
+
+	// this is the min horizontal space needed for the box. If this dne the width, we must adjust to make it equal
+	if width != auto && total > containing_block.content.width {
+	    if margin_left == auto {
+		margin_left = Length(0.0, Px);
+	    }
+	    if margin_right == auto {
+		margin_right = Length(0.0, Px);
+	    }
+	}
+    }
+    
 }
 
 #+END_SRC
