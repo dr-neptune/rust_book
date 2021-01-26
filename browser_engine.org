@@ -28,6 +28,7 @@
 use std::collections::{HashMap, HashSet};
 pub type AttrMap = HashMap<String, String>;
 
+#[derive(Debug)]
 pub struct Node {
     // data common to all nodes
     pub children: Vec<Node>,
@@ -37,6 +38,7 @@ pub struct Node {
 
 // there are several node types. We will just use Element or Text here
 // enums allow you to define a type by enumerating its possible variants
+#[derive(Debug)]
 pub enum NodeType {
     Text(String),
     Element(ElementData),
@@ -44,6 +46,7 @@ pub enum NodeType {
 
 // an element includes a tag name and any number of attributes, which can be stored as a map from names to values.
 // we don't have namespaces, so we just store tag and attribute names as simple strings
+#[derive(Debug)]
 pub struct ElementData {
     pub tag_name: String,
     pub attributes: AttrMap,
@@ -285,22 +288,25 @@ and now the CSS module:
 #+name: css
 #+BEGIN_SRC rust :tangle browser_engine/src/css.rs 
 // a CSS stylesheet is a series of rules.
+#[derive(Debug)]
 pub struct Stylesheet {
     pub rules: Vec<Rule>,
 }
 
 // a rule includes one or more selectors separated by commas, followed by a series of declarations enclosed in braces
-
+#[derive(Debug)]
 pub struct Rule {
     pub selectors: Vec<Selector>,
     pub declarations: Vec<Declaration>,
 }
 
 // a simple selector can include a tag name, an ID prefixed by '#', any number of class names prefixed by '.', or some combination of the above.
+#[derive(Debug)]
 pub enum Selector {
     Simple(SimpleSelector),
 }
 
+#[derive(Debug)]
 pub struct SimpleSelector {
     pub tag_name: Option<String>,
     pub id: Option<String>,
@@ -308,30 +314,34 @@ pub struct SimpleSelector {
 }
 
 // a declaration is just a name/value pair, separated by a colon and ending with a semi-colon
+#[derive(Debug)]
 pub struct Declaration {
     pub name: String,
     pub value: Value,
 }
 
 // support a handful of CSS value types
+#[derive(Debug, Clone, PartialEq)]
 pub enum Value {
     Keyword(String),
     Length(f32, Unit),
     ColorValue(Color),
 }
 
+#[derive(Debug, Clone, PartialEq)]
 pub enum Unit {
     Px,
 }
 
+#[derive(Debug, Clone, PartialEq, Default)]
 pub struct Color {
-    r: u8,
-    g: u8,
-    b: u8,
-    a: u8,
+    pub r: u8,
+    pub g: u8,
+    pub b: u8,
+    pub a: u8,
 }
 
-// impl Copy for Color {}
+impl Copy for Color {}
 
 // specificity is one of the ways a rendering engine decides which style overrides the other in a conflict.
 // if a stylesheet contains two rules that match an element, the rule with the matching selector of higher specificity
@@ -361,9 +371,9 @@ impl Value {
  
 // parsing
 // CSS has a regular grammar, making it easier to parse correctly than HTML
-struct Parser {
-    pos: usize,
-    input: String,
+pub struct Parser {
+    pub pos: usize,
+    pub input: String,
 }
 
 impl Parser {
@@ -567,20 +577,21 @@ In this implementation, each node in the DOM tree has exactly one node in the st
 
 #+name: style
 #+BEGIN_SRC rust :tangle browser_engine/src/style.rs
-use crate::dom::*;
-use crate::css::*;
+use crate::dom::{Node, NodeType, ElementData};
+use crate::css::{Stylesheet, Rule, Selector, SimpleSelector, Value, Specificity};
 use std::collections::HashMap;
 
 // Map from CSS property names to values
 type PropertyMap = HashMap<String, Value>;
 
 // A node with associated style data
-struct StyledNode<'a> { // the 'a is a lifetime, part of how Rust guarantees that pointers are memory safe without requiring garbage collection 
-    node: &'a Node, // pointer to a DOM node
-    specified_values: PropertyMap,
-    children: Vec<StyledNode<'a>>,
+pub struct StyledNode<'a> { // the 'a is a lifetime, part of how Rust guarantees that pointers are memory safe without requiring garbage collection 
+    pub node: &'a Node, // pointer to a DOM node
+    pub specified_values: PropertyMap,
+    pub children: Vec<StyledNode<'a>>,
 }
 
+#[derive(PartialEq)]
 pub enum Display {
     Inline,
     Block,
@@ -590,7 +601,7 @@ pub enum Display {
 impl<'a> StyledNode<'a> {
     // return the specified value of a property if it exists, otherwise `None`.
     pub fn value(&self, name: &str) -> Option<Value> {
-	self.specified_values.get(name).clone()
+	self.specified_values.get(name).cloned()
     }
 
     // Return the specified value of property `name` or property `fallback_name` if that doesn't exist, or value `default` if neither does
@@ -704,8 +715,8 @@ pub fn style_tree<'a>(root: &'a Node, stylesheet: &'a Stylesheet) -> StyledNode<
   because its where the box's content is drawn. A box may also have padding, borders, and margins surrounding its content area.
 
 #+name: layout
-#+BEGIN_SRC rust
-use crate::style::{StyledNode, Display};
+#+BEGIN_SRC rust :tangle browser_engine/src/layout.rs
+use crate::style::StyledNode;
 use crate::css::Value::{Keyword, Length};
 use crate::css::Unit::Px;
 use std::default::Default;
@@ -713,34 +724,37 @@ use std::default::Default;
 pub use self::BoxType::{AnonymousBlock, InlineNode, BlockNode};
 
 // CSS box model. All sizes are in px.
+#[derive(Clone, Copy, Default, Debug)]
 pub struct Dimensions {
     // position of the content area relative to the document origin:
-    content: Rect,
+    pub content: Rect,
     // Surrounding edges:
-    padding: EdgeSizes,
-    border: EdgeSizes,
-    margin: EdgeSizes,
+    pub padding: EdgeSizes,
+    pub border: EdgeSizes,
+    pub margin: EdgeSizes,
 }
 
+#[derive(Clone, Copy, Default, Debug)]
 pub struct Rect {
-    x: f32,
-    y: f32,
-    width: f32,
-    height: f32,
+    pub x: f32,
+    pub y: f32,
+    pub width: f32,
+    pub height: f32,
 }
 
+#[derive(Clone, Copy, Default, Debug)]
 pub struct EdgeSizes {
-    left: f32,
-    right: f32,
-    top: f32,
-    bottom: f32,
+    pub left: f32,
+    pub right: f32,
+    pub top: f32,
+    pub bottom: f32,
 }
 
 // The Layout Tree is a collection of boxes. A box has dimensions, and it may contain child boxes.
 pub struct LayoutBox<'a> {
-    dimensions: Dimensions,
-    box_type: BoxType<'a>,
-    children: Vec<LayoutBox<'a>>,
+    pub dimensions: Dimensions,
+    pub box_type: BoxType<'a>,
+    pub children: Vec<LayoutBox<'a>>,
 }
 
 // a block can be a block node, an inline node, or an anonymous block box
@@ -789,19 +803,19 @@ impl<'a> LayoutBox<'a> {
 
     // if a block node contains an inline child, create an anonymous block box to contain it.
     // if there are several inline children in a row, put them all in the same anonymous container
-    fn get_inline_container(&mut self) -> &mut LayoutBox {
-	match self.box_type {
-	    InlineNode(_) | AnonymousBlock => self,
-	    BlockNode(_) => {
-		// if we've just generated an anonymous block box, keep using it. otherwise create a new one
-		match self.children.last() {
-		    Some(&LayoutBox { box_type: AnonymousBlock, ..}) => {}
-		    _ => self.children.push(LayoutBox::new(AnonymousBlock))
-		}
-		self.children.last_mut().unwrap()
-	    }
-	}
-    }
+    // fn get_inline_container(&mut self) -> &mut LayoutBox {
+    // 	match self.box_type {
+    // 	    InlineNode(_) | AnonymousBlock => self,
+    // 	    BlockNode(_) => {
+    // 		// if we've just generated an anonymous block box, keep using it. otherwise create a new one
+    // 		match self.children.last() {
+    // 		    Some(&LayoutBox { box_type: AnonymousBlock, ..}) => {}
+    // 		    _ => self.children.push(LayoutBox::new(AnonymousBlock))
+    // 		}
+    // 		self.children.last_mut().unwrap()
+    // 	    }
+    // 	}
+    // }
 
     // this takes a LayoutBox and calculates its dimensions
     fn layout(&mut self, containing_block: Dimensions) {
@@ -839,7 +853,7 @@ impl<'a> LayoutBox<'a> {
 	let mut width = style.value("width").unwrap_or(auto.clone());
 
 	// margin, border, and padding have initial value 0
-	let zero = length(0.0, Px);
+	let zero = Length(0.0, Px);
 
 	// lookup tries a series of values in sequence. If the first property isn't set, it tries the second one, if not then etc or default.
 	let mut margin_left = style.lookup("margin-left", "margin", &zero);
@@ -855,10 +869,10 @@ impl<'a> LayoutBox<'a> {
 	// The CSS spec expresses this as a set of constaints and an algorithm for solving them
 	// the following code implements that algorithm
 	// first we add the margin, padding, border, and content widths
-	let total = [&margin_left, &margin_right,
+	let total = sum([&margin_left, &margin_right,
 		     &border_left, &border_right,
 		     &padding_left, &padding_right, &width]
-	    .iter().map(|v| v.to_px()).sum();
+	    .iter().map(|v| v.to_px()));
 
 	// this is the min horizontal space needed for the box. If this dne the width, we must adjust to make it equal
 	if width != auto && total > containing_block.content.width {
@@ -869,26 +883,503 @@ impl<'a> LayoutBox<'a> {
 		margin_right = Length(0.0, Px);
 	    }
 	}
+
+	// if a box is too big for its container, it overflows the container. If too small, it underflows, leaving extra space
+	let underflow = containing_block.content.width - total;
+
+	// eliminate any over/underflow by adjusting the expandable dimensions. If there are no 'auto' dimensions, we adjust the right margin
+	match (width == auto, margin_left == auto, margin_right == auto) {
+	    // if the values are overconstrained, calculate margin_right
+	    (false, false, false) => {
+		margin_right = Length(margin_right.to_px() + underflow, Px);
+	    }
+	    
+	    // if exactly one size is auto, its used value follows from the equality
+	    (false, false, true) => { margin_right = Length(underflow, Px); }
+	    (false, true, false) => { margin_left = Length(underflow, Px); }
+
+	    // if width is set to auto, any other auto values become 0
+	    (true, _, _) => {
+		if margin_left == auto { margin_left = Length(0.0, Px); }
+		if margin_right == auto { margin_right = Length(0.0, Px); }
+
+		if underflow >= 0.0 {
+		    // expand width to fill the underflow
+		    width = Length(underflow, Px);
+		} else {
+		    // Width can't be negative. Adjust the right margin instead
+		    width = Length(0.0, Px);
+		    margin_right = Length(margin_right.to_px() + underflow, Px);
+		}
+	    }
+
+	    // if margin-left and margin-right are both auto, their used values are equal
+	    (false, true, true) => {
+		margin_left = Length(underflow / 2.0, Px);
+		margin_right = Length(underflow / 2.0, Px);
+	    }
+	}
+	
+	// at this point, the constaints are met and any 'auto' values have been converted to lengths
+	// the results are the used values for the horizontal box dimensions, which we will store in the layout tree
+	let d = &mut self.dimensions;
+	d.content.width = width.to_px();
+
+	d.padding.left = padding_left.to_px();
+	d.padding.right = padding_right.to_px();
+
+	d.border.left = border_left.to_px();
+	d.border.right = border_right.to_px();
+
+	d.margin.left = margin_left.to_px();
+	d.margin.right = margin_right.to_px();
     }
-    
+
+    // Positioning
+    // this fn looks up the remaining margin/padding/border styles, and uses these along with the containing block dimensions to determine this block's position on the page.
+    fn calculate_block_position(&mut self, containing_block: Dimensions) {
+	let style = self.get_style_node();
+	let d = &mut self.dimensions;
+
+	// margin, border, and padding have initial value 0
+	let zero = Length(0.0, Px);
+
+	// if margin-top or margin-bottom is `auto`, the used value is zero
+	d.margin.top = style.lookup("margin-top", "margin", &zero).to_px();
+	d.margin.bottom = style.lookup("margin-bottom", "margin", &zero).to_px();
+
+	d.border.top = style.lookup("border-top-width", "border-width", &zero).to_px();
+	d.border.bottom = style.lookup("border-bottom-width", "border-width", &zero).to_px();
+
+	d.padding.top = style.lookup("padding-top", "padding", &zero).to_px();
+	d.padding.bottom = style.lookup("padding-bottom", "padding", &zero).to_px();
+
+	d.content.x = containing_block.content.x + d.margin.left + d.border.left + d.padding.left;
+
+	// Position the box below all the previous boxes in the container
+	// this is what gives block layout its distinctive vertical stacking behavior
+	d.content.y = containing_block.content.height + containing_block.content.y + d.margin.top + d.border.top + d.padding.top;
+    }
+
+    // Children
+    // Here is the code that recursively lays out the box's contents. As it looks through the child boxes, it keeps track of the total content height.
+    // this is used by the positioning code to find the vertical position of the next child
+    fn layout_block_children(&mut self) {
+	let d = &mut self.dimensions;
+	for child in &mut self.children {
+	    child.layout(*d);
+	    // Track the height so each child is laid out below the previous content
+	    d.content.height = d.content.height + child.dimensions.margin_box().height;
+	}
+    }
+
+    // By default, the boxes height is equal to the height of its contents. If we set the height property explicitly, use that instead
+    fn calculate_block_height(&mut self) {
+	// If height is set to an explicit length, use that exact length. OW, just keep the value set by layout_block_children
+	if let Some(Length(h, Px)) = self.get_style_node().value("height") {
+	    self.dimensions.content.height = h;
+	}
+    }
+
+    // where a new inline child should go
+    fn get_inline_container(&mut self) -> &mut LayoutBox<'a> {
+	match self.box_type {
+	    InlineNode(_) | AnonymousBlock => self,
+	    BlockNode(_) => {
+		// If we've generated an anonymous block, keep using it. OW generate a new one
+		match self.children.last() {
+		    Some(&LayoutBox {box_type: AnonymousBlock,..}) => {}
+		    _ => self.children.push(LayoutBox::new(AnonymousBlock))
+		}
+		self.children.last_mut().unwrap()
+	    }
+	}
+    }
 }
 
+impl Rect {
+    pub fn expanded_by(self, edge: EdgeSizes) -> Rect {
+	Rect {
+	    x: self.x - edge.left,
+	    y: self.y - edge.top,
+	    width: self.width + edge.left + edge.right,
+	    height: self.height + edge.top + edge.bottom,
+	}
+    }
+}
+
+impl Dimensions {
+    // The area covered by the content area plus its padding
+    pub fn padding_box(self) -> Rect {
+	self.content.expanded_by(self.padding)
+    }
+
+    // The area covered by the content area plus padding and borders
+    pub fn border_box(self) -> Rect {
+	self.padding_box().expanded_by(self.border)
+    }
+
+    // The area covered by the content area plus padding, borders, and margin
+    pub fn margin_box(self) -> Rect {
+	self.border_box().expanded_by(self.margin)
+    }
+}
+
+fn sum<I>(iter: I) -> f32 where I: Iterator<Item=f32> {
+    iter.fold(0., |a, b| a + b)
+}
 #+END_SRC
-  
+
+* Painting
+
+  This code takes the tree of boxes from the layout module and turns them into an array of pixels. This process is also known as rasterization.
+  Here we write a rasterizer that can only paint one thing: rectangles.
+
+#+name: painting
+#+BEGIN_SRC rust :tangle browser_engine/src/painting.rs
+use crate::layout::{AnonymousBlock, BlockNode, InlineNode, LayoutBox, Rect};
+use crate::css::{Value, Color};
+
+// before painting, we walk through the layout tree and build a display list. This is a list of graphics operations like "draw a circle", or "draw a string of text".
+// the display list is useful because you can search it for items that will be covered up by later operations and remove them to eliminate wasted painting
+// you can also modify and reuse the display list in cases where you know only certain items have changed.
+// you can also use the same display list to generate different types of output (i.e. pixels for displaying on a screen, or vector graphics for sending to a printer)
+type DisplayList = Vec<DisplayCommand>;
+
+// only one type of command, build a solid color rectangle
+#[derive(Debug)]
+pub enum DisplayCommand {
+    SolidColor(Color, Rect),
+}
+
+// to build the display list, we walk through the layout tree and generate a series of commands for each box.
+fn build_display_list(layout_root: &LayoutBox) -> DisplayList {
+    let mut list = Vec::new();
+    render_layout_box(&mut list, layout_root);
+    list
+}
+
+fn render_layout_box(list: &mut DisplayList, layout_box: &LayoutBox) {
+    render_background(list, layout_box);
+    render_borders(list, layout_box);
+
+    for child in &layout_box.children {
+	render_layout_box(list, child);
+    }
+}
+
+// The background is just a solid rectangle. If no color specified, then set to transparent and we don't need to generate a display command
+fn render_background(list: &mut DisplayList, layout_box: &LayoutBox) {
+    get_color(layout_box, "background").map(|color|
+					    list.push(DisplayCommand::SolidColor(color, layout_box.dimensions.border_box())));
+}
+
+// return the specified color for CSS property `name`, or None if no color was specified. 
+fn get_color(layout_box: &LayoutBox, name: &str) -> Option<Color> {
+    match layout_box.box_type {
+	BlockNode(style) | InlineNode(style) => match style.value(name) {
+	    Some(Value::ColorValue(color)) => Some(color),
+	    _ => None
+	},
+	AnonymousBlock => None
+    }
+}
+
+// The borders are similar, but instead of a rectangle, we draw four -- one for each edge of the box
+fn render_borders(list: &mut DisplayList, layout_box: &LayoutBox) {
+    let color = match get_color(layout_box, "border-color") {
+	Some(color) => color,
+	_ => return // bail out if no border-color is specified
+    };
+
+    let d = &layout_box.dimensions;
+    let border_box = d.border_box();
+
+    // Left border
+    list.push(DisplayCommand::SolidColor(color, Rect {
+	x: border_box.x,
+	y: border_box.y,
+	width: d.border.left,
+	height: border_box.height,
+    }));
+
+    // Right border
+    list.push(DisplayCommand::SolidColor(color, Rect {
+	x: border_box.x + border_box.width - d.border.right,
+	y: border_box.y,
+	width: d.border.right,
+	height: border_box.height,
+    }));
+
+    // Top border
+    list.push(DisplayCommand::SolidColor(color, Rect {
+	x: border_box.x,
+	y: border_box.y,
+	width: border_box.width,
+	height: d.border.top,
+    }));
+
+    // Bottom border
+    list.push(DisplayCommand::SolidColor(color, Rect {
+	x: border_box.x,
+	y: border_box.y + border_box.height - d.border.bottom,
+	width: border_box.width,
+	height: d.border.bottom,
+    }));
+}
+
+// now that we've built the display list, we need to turn it into pixels by executing each DisplayCommand. We'll store the pixels in a Canvas
+pub struct Canvas {
+    pub pixels: Vec<Color>,
+    pub width: usize,
+    pub height: usize,
+}
+
+impl Canvas {
+    // Create a blank canvas
+    fn new(width: usize, height: usize) -> Canvas {
+	let white = Color { r: 255, g: 255, b: 255, a: 255 };
+	Canvas {
+	    pixels: vec![white; width * height],
+	    width: width,
+	    height: height,
+	}
+    }
+
+    // to paint a rectangle on the canvas, we just loop through its rows and columns
+    fn paint_item(&mut self, item: &DisplayCommand) {
+	match item {
+	    &DisplayCommand::SolidColor(color, rect) => {
+		// Clip the rectangle to the canvas boundaries
+		let x0 = rect.x.clamp(0.0, self.width as f32) as usize;
+		let y0 = rect.y.clamp(0.0, self.width as f32) as usize;
+		let x1 = (rect.x + rect.width).clamp(0.0, self.width as f32) as usize;
+		let y1 = (rect.y + rect.height).clamp(0.0, self.width as f32) as usize;
+
+		for y in y0 .. y1 {
+		    for x in x0 .. x1 {
+			self.pixels[x + y * self.width] = color;
+		    }
+		}
+	    }
+	}
+    }
+}
+
+// now we can put everything together in a paint function, which builds a display list and then rasterizes it to a canvas
+// paint a tree of LayoutBoxes to an array of pixels
+fn paint(layout_root: &LayoutBox, bounds: Rect) -> Canvas {
+    let display_list = build_display_list(layout_root);
+    let mut canvas = Canvas::new(bounds.width as usize, bounds.height as usize);
+    for item in display_list {
+	canvas.paint_item(&item);
+    }
+    canvas
+}
+
+trait Clamp {
+    fn clamp(self, lower: Self, upper: Self) -> Self;
+}
+
+impl Clamp for f32 {
+    fn clamp(self, lower: f32, upper: f32) -> f32 {
+	self.max(lower).min(upper)
+    }
+}
+#+END_SRC
+
 * Main
 
+  Now we can parse this HTML file:
+
+#+BEGIN_SRC html :tangle browser_engine/rainbow.html
+<div class="a">
+  <div class="b">
+    <div class="c">
+      <div class="d">
+	<div class="e">
+	  <div class="f">
+	    <div class="g">
+	    </div>
+	  </div>
+	</div>
+      </div>
+    </div>
+  </div>
+</div>
+#+END_SRC
+  
+  and this CSS file:
+
+#+BEGIN_SRC css :tangle browser_engine/rainbow.css
+ * { display: block; padding: 12px; }
+/* .a { background: #ff0000; } */
+/* .b { background: #ffa500; } */
+/* .c { background: #ffff00; } */
+/* .d { background: #008000; } */
+/* .e { background: #0000ff; } */
+/* .f { background: #4b0082; } */
+/*  .g { background: #800080; } */
+
+ .a { background: #69D2E7; }
+ .b { background: #A7DBD8; }
+ .c { background: #E0E4CC; }
+ .d { background: #F38630; }
+ .e { background: #FA6900; }
+ .f { background: #4b0082; }
+ .g { background: #800080; }
+ 
+#+END_SRC  
+
+to create an image!
+
 #+name: main-fn
-#+BEGIN_SRC rust :tangle browser_engine/src/main.rs
+#+BEGIN_SRC rust 
+#![allow(unstable)]
+
 mod dom;
 mod html;
 mod css;
 mod style;
+mod layout;
+mod painting;
+
+use getopts::{optopt, getopts};
+use std::default::Default;
+use std::io::fs::File;
+use std::os::args;
+
+extern crate getopts;
+extern crate image;
 
 fn main() {
-    let file = String::from("<html><body>Hello, World!</body></html>");
-    let root = html::parse(file);
+    // parse command-line options
+    let opts = [
+	optopt("h", "html", "HTML document", "FILENAME"),
+	optopt("c", "css", "CSS stylesheet", "FILENAME"),
+	optopt("o", "output", "Output file", "FILENAME",)
+    ];
 
-    println!("Nothing, yet");
+    let matches = match getopts(args().tail(), &opts) {
+	Ok(m) => m,
+	Err(f) => panic!(f.to_string())
+    };
+    
+    // read input files
+    let read_source = |&: arg_filename: Option<String>, default_filename: &str| {
+	let path = match arg_filename {
+	    Some(ref filename) => filename.as_slice(),
+	    None => default_filename,
+	};
+	File::open(&Path::new(path)).read_to_string().unwrap()
+    };
+
+    let html = read_source(matches.opt_str("h"), "rainbow.html");
+    let css = read_source(matches.opt_str("c"), "rainbow.css");
+
+    // since we don't have an actual window, hard-code the viewport size
+    let initial_containing_block = layout::Dimensions {
+	content: layout::Rect { x: 0.0, y: 0.0, width: 800.0, height: 600.0 },
+	padding: Default::default(),
+	border: Default::default(),
+	margin: Default::default(),
+    };
+
+    // parsing and rendering
+    let root_node = html::parse(html);
+    let stylesheet = css::parse(css);
+    let style_root = style::style_tree(&root_node, initial_containing_block);
+    let layout_root = layout::layout_tree(&style_root, initial_containing_block);
+    let canvas = painting::paint(&layout_root, initial_containing_block.content);
+
+    // create the output file
+    let filename = matches.opt_str("o").unwrap_or("output.png".to_string());
+    let file = File::create(&Path::new(filename.as_slice())).unwrap();
+
+    // save an image
+    let (w, h) = (canvas.width as u32, canvas.height as u32);
+    let buffer: Vec<image::Rgba<u8>> = unsafe { std::mem::transmute(canvas.pixels) };
+    let img = image::ImageBuffer::from_fn(w, h, Box::new(|&: x: u32, y: u32| buffer[(y * w + x) as usize]));
+
+    let result = image::ImageRgba8(img).save(file, image::PNG);
+
+    match result {
+	Ok(_) => println!("Saved output as {}", filename);
+	Err(_) => println!("Error saving output as {}", filename)
+    }
 }
 #+END_SRC
 
+#+name: main
+#+BEGIN_SRC rust :tangle browser_engine/src/main.rs
+#![allow(unstable)]
+
+extern crate getopts;
+extern crate image;
+
+use getopts::{optopt,getopts};
+use std::default::Default;
+use std::io::fs::File;
+use std::os::args;
+
+mod css;
+mod dom;
+mod html;
+mod layout;
+mod style;
+mod painting;
+
+fn main() {
+    // Parse command-line options:
+    let opts = [
+        optopt("h", "html", "HTML document", "FILENAME"),
+        optopt("c", "css", "CSS stylesheet", "FILENAME"),
+        optopt("o", "output", "Output file", "FILENAME"),
+    ];
+    let matches = match getopts(args().tail(), &opts) {
+        Ok(m) => m,
+        Err(f) => panic!(f.to_string())
+    };
+
+    // Read input files:
+    let read_source = |&: arg_filename: Option<String>, default_filename: &str| {
+        let path = match arg_filename {
+            Some(ref filename) => filename.as_slice(),
+            None => default_filename,
+        };
+        File::open(&Path::new(path)).read_to_string().unwrap()
+    };
+    let html = read_source(matches.opt_str("h"), "examples/test.html");
+    let css  = read_source(matches.opt_str("c"), "examples/test.css");
+
+    // Since we don't have an actual window, hard-code the "viewport" size.
+    let initial_containing_block = layout::Dimensions {
+        content: layout::Rect { x: 0.0, y: 0.0, width: 800.0, height: 600.0 },
+        padding: Default::default(),
+        border: Default::default(),
+        margin: Default::default(),
+    };
+
+    // Parsing and rendering:
+    let root_node = html::parse(html);
+    let stylesheet = css::parse(css);
+    let style_root = style::style_tree(&root_node, &stylesheet);
+    let layout_root = layout::layout_tree(&style_root, initial_containing_block);
+    let canvas = painting::paint(&layout_root, initial_containing_block.content);
+
+    // Create the output file:
+    let filename = matches.opt_str("o").unwrap_or("output.png".to_string());
+    let file = File::create(&Path::new(filename.as_slice())).unwrap();
+
+    // Save an image:
+    let (w, h) = (canvas.width as u32, canvas.height as u32);
+    let buffer: Vec<image::Rgba<u8>> = unsafe { std::mem::transmute(canvas.pixels) };
+    let img = image::ImageBuffer::from_fn(w, h, Box::new(|&: x: u32, y: u32| buffer[(y * w + x) as usize]));
+
+    let result = image::ImageRgba8(img).save(file, image::PNG);
+    match result {
+        Ok(_) => println!("Saved output as {}", filename),
+        Err(_) => println!("Error saving output as {}", filename)
+    }
+}
+#+END_SRC
