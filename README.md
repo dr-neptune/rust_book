@@ -12,7 +12,7 @@ Bloomfilter.org:
 
 [Let's Implement a Bloom Filter](https://onatm.dev/2020/08/10/let-s-implement-a-bloom-filter/)
 
-**Chapters 3 + 4:**\n
+**Chapters 3 + 4:**
 
 browser_engine.org:
 
