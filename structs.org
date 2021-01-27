@@ -1,0 +1,297 @@
+* Using Structs to Structure Related Data
+
+  A struct is a custom data type that lets you name and package together multiple related values that make up a meaningful group.
+  In this chapter, we compare and contrast tuples with structs, demonstrate how to use structs, and discuss how to define methods and associated functions to specify behavior associated with a struct's data.
+  Structs and enums are the building blocks for creating new types in your program's domain to take full advantage of Rust's compile time type checking.
+  
+* Defining and Instantiating Structs
+
+  Like tuples, the pieces of a struct can be different types. Unlike tuples, we name each piece of data so its clear what the values mean.
+
+#+name:
+#+BEGIN_SRC rust
+fn main() {
+    // create a struct
+    struct User {
+        username: String,
+        email: String,
+        sign_in_count: u64,
+        active: bool,
+    }
+
+    // create an instance of the struct by specifying concrete values for each of the fields
+    let user1 = User {
+        email: String::from("someone@example.com"),
+        username: String::from("someusername123"),
+        active: true,
+        sign_in_count: 1,
+    };
+
+    // to get a specific value from a struct, we can use dot notation
+    println!("The username is: {}", user1.username);
+
+    // we can also change a value with dot notation if its mutable
+    // note the entire struct must be mutable, not just a field
+    let mut user2 = User {
+        email: String::from("someone_else@example.com"),
+        username: String::from("someotherusername123"),
+        active: true,
+        sign_in_count: 3,
+    };
+
+    println!("The email was: {}", user2.email);
+    user2.email = String::from("anotheremail@example.com");
+    println!("The email is now: {}", user2.email);
+
+    // we can also make functions to partially fill structs
+    fn build_user(email: String, username: String) -> User {
+        User {
+            email: email,
+            username: username,
+            active: true,
+            sign_in_count: 1,
+        }
+    }
+
+    let user3 = build_user(String::from("Dingus"), String::from("Drangus@aol.com"));
+    println!(
+        "Username:\t{}\nEmail Address:\t{}",
+        user3.email, user3.username
+    );
+}
+#+END_SRC
+
+#+BEGIN_SRC
+The username is: someusername123
+The email was: someone_else@example.com
+The email is now: anotheremail@example.com
+Username:	Dingus
+Email Address:	Drangus@aol.com
+#+END_SRC
+
+** Using the Field Init Shorthand when Variables and Fields have the Same Name
+
+   Because the param names and the struct field names are exactly the same in the example above, we can use the field init shorthand syntax:
+
+#+name:
+#+BEGIN_SRC rust
+fn main() {
+    struct User {
+        username: String,
+        email: String,
+        sign_in_count: u64,
+        active: bool,
+    }
+
+    // field init shorthand syntax
+    fn build_user(email: String, username: String) -> User {
+        User {
+            email,
+            username,
+            active: true,
+            sign_in_count: 1,
+        }
+    }
+
+    let dongle = build_user(String::from("Dingus"), String::from("Drangus@aol.com"));
+    println!(
+        "Username:\t{}\nEmail Address:\t{}",
+        dongle.email, dongle.username
+    );
+
+    // Creating Instances from Other Instances With Struct Update Syntax
+    // struct update syntax
+    let dingle = User {
+        email: String::from("DrStevenBrule@yahoo.com"),
+        username: String::from("checkitout"),
+        ..dongle
+    };
+
+    println!(
+        "Username:\t{}\nEmail Address:\t{}",
+        dingle.email, dingle.username
+    );
+
+    // Using Tuple Structs without Named Fields to Create Different Types
+    // tuple structs have the added meaning of the struct name, but don't have named fields. They do have field types.
+    #[derive(Debug)] // allows pretty printing
+    struct Color(i32, i32, i32);
+    #[derive(Debug)] // allows pretty printing
+    struct Point(i32, i32, i32);
+
+    // each struct has its own type, even if the fields within the struct have the same types
+    let black = Color(0, 0, 0);
+    let origin = Point(0, 0, 0);
+
+    println!("Black: {:?}\tOrigin: {:?}", black, origin);
+}
+#+END_SRC
+
+#+begin_src
+Username:	Dingus
+Email Address:	Drangus@aol.com
+Username:	DrStevenBrule@yahoo.com
+Email Address:	checkitout
+Black: Color(0, 0, 0)	Origin: Point(0, 0, 0)
+#+end_src
+
+In the User struct definition, we used the owned String type rather than the &str slice type. This is deliberate because we want instances of this struct to own all of its data and for that data to be valud for as long as the struct is valid.
+
+It's possible for structs to store references to data owned by something else, but to do so requires the use of lifetimes. Lifetimes ensure that the data referenced by a struct is valid as long as the struct is.
+
+* An Example Program Using Structs
+
+  We will write a program that calculates the area of a triangle. We'll start with single variables, and then refactor until we're using structs instead.
+
+#+name: rectangles
+#+BEGIN_SRC rust
+// takes the width and height of a rectangle specified in pixels and calculates the area of the rectangle
+fn area(width: u32, height: u32) -> u32 {
+    width * height
+}
+
+fn main() {
+    let width1 = 30;
+    let height1 = 50;
+
+    println!(
+        "The area of the rectangle is {} square pixels.",
+        area(width1, height1)
+    );
+}
+#+END_SRC
+
+#+RESULTS: rectangles
+: The area of the rectangle is 1500 square pixels.
+
+The width and height are related to each other because they describe one rectangle.
+The area function calculates the area of one rectangle, but the function we wrote has 2 parameters. The parameters are related, but that's not expressed anywhere in our program.
+
+** Refactoring with Tuples
+
+#+name: rectuples
+#+BEGIN_SRC rust
+fn area(dimensions: (u32, u32)) -> u32 {
+    dimensions.0 * dimensions.1
+}
+
+fn main() {
+    let rect1 = (30, 50);
+
+    println!(
+        "The area of the rectangle is {} square pixels.",
+        area(rect1)
+    );
+}
+#+END_SRC
+
+#+RESULTS: rectuples
+: The area of the rectangle is 1500 square pixels.
+
+This adds a bit of structure, but tuples don't name their elements so our calculation has become more confusing.
+
+** Refactoring with Structs: Adding More Meaning
+
+#+name: rect-structles
+#+BEGIN_SRC rust
+struct Rectangle {
+    width: u32,
+    height: u32,
+}
+
+fn area(rectangle: &Rectangle) -> u32 {
+    rectangle.width * rectangle.height
+}
+
+fn main() {
+    let rect1 = Rectangle {
+        width: 30,
+        height: 50,
+    };
+
+    println!(
+        "The area of the rectangle is {} square pixels.",
+        area(&rect1)
+    );
+}
+#+END_SRC
+
+#+RESULTS: rect-structles
+: The area of the rectangle is 1500 square pixels.
+
+** Adding Useful Functionality with Derived Traits
+
+   Structs don't have a provided implementation of Display.
+
+   If we add the specifier :? to {:?}, we tell println! that we want to use an output format called Debug.
+   The Debug trait enables us to print our struct in a way that is useful for developers so we can see its value when we're debugging our code.
+   If that doesn't work, we have to explicitly opt in to make that functionality available for our struct. To do that, we annotate
+
+#+name: debug-annotate
+#+BEGIN_SRC rust
+#[derive(Debug)]
+struct Rectangle {
+    width: u32,
+    height: u32,
+}
+
+fn main() {
+    let rect1 = Rectangle {
+        width: 30,
+        height: 50,
+    };
+
+    // smaller structs
+    println!("rect1 is {:?}", rect1);
+    // larger structs
+    println!("rect1 is {:#?}", rect1);
+}
+#+END_SRC
+
+#+RESULTS: debug-annotate
+: rect1 is Rectangle { width: 30, height: 50 }
+: rect1 is Rectangle {
+:     width: 30,
+:     height: 50,
+: }
+
+Rust has provided a number of traits for us to use with the derive annotation that can add useful behavior to our custom types.
+
+Our area function is very specific: it only computes the area of rectangles. It would be helpful to tie this behavior more closely to our Rectangle struct, since it won't work with any other type.
+We can turn our area function into an area method defined on our Rectangle type
+
+* Method Syntax
+
+  Methods are different from functions in that they are defined within the context of a struct (or an enum, or trait object), and their first parameter is always self which represents the instance of the struct the method is being called on.
+
+** Defining Methods
+  
+#+name: method-defn
+#+BEGIN_SRC rust
+#[derive(Debug)]
+struct Rectangle {
+    width: u32,
+    height: u32,
+}
+
+impl Rectangle {
+    fn area(&self) -> u32 {
+        self.width * self.height
+    }
+}
+
+fn main() {
+    let rect1 = Rectangle {
+        width: 30,
+        height: 50,
+    };
+
+    println!(
+        "The area of the rectangle is {} square pixels.",
+        rect1.area()
+    );
+}
+#+END_SRC
+
+#+RESULTS: method-defn
+: The area of the rectangle is 1500 square pixels.
