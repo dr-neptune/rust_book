@@ -295,3 +295,83 @@ fn main() {
 
 #+RESULTS: method-defn
 : The area of the rectangle is 1500 square pixels.
+
+** Methods with More Parameters
+
+This time we want an instance of Rectangle to take another instance of Rectangle and return true if the second Rectangle can fit completely within self; otherwise it should return false.
+   
+#+name:
+#+BEGIN_SRC rust
+#[derive(Debug)]
+struct Rectangle {
+    width: u32,
+    height: u32,
+}
+
+impl Rectangle {
+    fn area(&self) -> u32 {
+        self.width * self.height
+    }
+
+    // methods can take multiple parameters that we add to the signature after the self parameter
+    fn can_hold(&self, other: &Rectangle) -> bool {
+        self.width > other.width && self.height > other.height
+    }
+
+    // we can also implement functions that don't take self as a parameter. These are called associated functions
+    // because they're associated with the struct
+    // they're still functions, not methods, because they don't have an instance of the struct to work with
+    // these are often used for constructors that return a new instance of the struct.
+    fn square(size: u32) -> Rectangle {
+        Rectangle {
+            width: size,
+            height: size,
+        }
+    }
+}
+
+// each struct can have multiple impl blocks
+impl Rectangle {
+    fn area_sq(&self) -> u32 {
+        self.width * self.width * self.height * self.height
+    }
+
+    fn cant_hold(&self, other: &Rectangle) -> bool {
+        self.width < other.width && self.height < other.height
+    }
+}
+
+fn main() {
+    let rect1 = Rectangle {
+        width: 30,
+        height: 50,
+    };
+    let rect2 = Rectangle {
+        width: 10,
+        height: 40,
+    };
+    let rect3 = Rectangle {
+        width: 60,
+        height: 45,
+    };
+    let rect4 = Rectangle::square(25);
+
+    println!("Can rect1 hold rect2? {}", rect1.can_hold(&rect2));
+    println!("Can rect1 hold rect3? {}", rect1.can_hold(&rect3));
+    println!("rect4 area: {}", rect4.area());
+    println!("Can rect2 not hold rect1? {}", rect2.cant_hold(&rect1));
+    println!("What is the squared area of rect4? {}", rect4.area_sq());
+}
+#+END_SRC
+
+#+RESULTS: 
+: Can rect1 hold rect2? true
+: Can rect1 hold rect3? false
+: rect4 area: 625
+: Can rect2 not hold rect1? true
+: What is the squared area of rect4? 390625
+
+** Summary
+
+   Structs let you create custom types that are meaningful for your domain. By using structs, you can keep associated pieces of data connected to each other and name each piece to make your code clear.
+   Methods let you specify the behavior that instances of your structs have, and associated functions let you namespace functionality that is particular to your struct without having an instance available.

@@ -1,0 +1,80 @@
+* Enums and Pattern Matching
+
+  Enums allow you to define a type by enumerating its possible variants.
+  First we'll define and use an enum to show how an enum can encode meaning along with data.
+  Next, we'll explore the Option enum which expresses that a valud can be either something or nothing.
+  Then we'll look at how pattern matching in the match expression makes it easy to run different code for different values of an enum.
+  Finally we'll cover how the if let construct is another convenient and concise idiom available for handling enums.
+
+  Enums in Rust are most similar to algebraic data types in functional languages like F#, OCaml and Haskell.
+
+* Defining an Enum
+
+  Say we need to work with IP addresses. Currently there are two major standards, IPv4 and IPv6. These are the only possibilities for an IP address that our program will come across.
+  We can **enum** erate all possible variants
+
+#+name:
+#+BEGIN_SRC rust
+// define an enum and list the possible kinds
+enum IpAddrKind {
+    V4,
+    V6,
+}
+
+// we could use structs like so
+struct IpAddr {
+    kind: IpAddrKind,
+    address: String,
+}
+
+// define a function that takes IpAddrKind
+fn route(ip_kind: IpAddrKind) {}
+
+fn main() {
+    // create an instance of each kind of IP address
+    let four = IpAddrKind::V4;
+    let six = IpAddrKind::V6;
+
+    // call the fn that takes IpAddrKind
+    route(IpAddrKind::V4);
+    route(IpAddrKind::V6);
+
+    // define with structs
+    let home1 = IpAddr {
+        kind: IpAddrKind::V4,
+        address: String::from("127.0.0.1"),
+    };
+
+    let loopback1 = IpAddr {
+        kind: IpAddrKind::V6,
+        address: String::from("::1"),
+    };
+}
+#+END_SRC
+
+We could represent the same concept in a more concise way using just an enum by putting data directly into each enum variant
+
+#+name:
+#+BEGIN_SRC rust
+// // we can put data directly inside an enum variant
+// enum IpAddr {
+//     V4(String),
+//     V6(String),
+// }
+
+// each variant can have different types and amounts of associated data
+enum IpAddr {
+    V4(u8, u8, u8, u8),
+    V6(String),
+}
+
+fn main() {
+    // we attach data directly, so there is no need for an extra struct
+    // let home = IpAddr::V4(String::from("127.0.0.1"));
+    // let loopback = IpAddr::V4(String::from("::1"));
+
+    // with the new variant
+    let home = IpAddr::V4(127, 0, 0, 1);
+    let loopback = IpAddr::V6(String::from("::1"));
+}
+#+END_SRC
