@@ -195,15 +195,88 @@ fn main() {
         parse_joe("Hello Joe! Hello Robert!"),
         parse_joe("Hello Mike!")
     );
+
+    let parse_gator_1 = match_literal("<");
+    let parse_gator_2 = match_literal(">");
+    // let parse_gator_1s = match_literal("</");
+    // let parse_gator_2s = match_literal("/>");
+    // let parse_eq = match_literal("=");
+    let input_str = "<parent-element><single-element attribute='value' /></parent-element>";
+
+    println!(
+        "start:\t{:?}\nend:\t\t{:?}\n",
+        parse_gator_1(input_str),
+        parse_gator_2(input_str)
+    );
 }
 #+END_SRC
 
-#+RESULTS: 
-: Test 1:	Ok(("", ()))
-: Test 2:	Ok((" Hello Robert!", ()))
-: Test 3:	Err("Hello Mike!")
-
 * A Parser for Something Less Specific
+
+  Recalling the rule for the element name identifier, it's as follows: one alphabetical character, followed by zero or more of either an alphabetical character, a number, or a dash -
+
+#+name:
+#+BEGIN_SRC rust
+// this time we are just writing a parser, not a higher order fn that returns a parser
+// instead of returning a result type of (), we are returning a String in the tuple along with the remaining input. The String will contain the identifier we've parsed
+fn identifier(input: &str) -> Result<(&str, String), &str> {
+    let mut matched = String::new();
+    let mut chars = input.chars();
+
+    // if there is a letter up front, we push it to matched
+    // we've already got a valid identifier if we match the first letter
+    match chars.next() {
+        Some(next) if next.is_alphabetic() => matched.push(next),
+        // if its not an alphabetic, its not an element identifier
+        _ => return Err(input),
+    }
+
+    // if the first was an alphabetic char, we continue along the string, matching as long as its alphanumeric or a dash
+    while let Some(next) = chars.next() {
+        if next.is_alphanumeric() || next == '-' {
+            matched.push(next);
+        } else {
+            // we don't return an error if the followup isnt alphanumeric + - since its valid to have in the identifier
+            break;
+        }
+    }
+
+    // the first time we see something that doesn't match the criteria, save our spot and return the String we've built
+    let next_index = matched.len();
+    Ok((&input[next_index..], matched))
+}
+
+fn main() {
+    println!(
+        "First Test:\t\t{:?}\nSecond Test:\t\t{:?}\nThird Test:\t\t{:?}\n",
+        identifier("i-am-an-identifier"),
+        identifier("not entirely an idenitifier"),
+        identifier("!not at all an identifier")
+    );
+}
+#+END_SRC
+
+
+: First Test:		Ok(("", "i-am-an-identifier"))
+: Second Test:		Ok((" entirely an idenitifier", "not"))
+: Third Test:		Err("!not at all an identifier")
+: 
+
+
+Remember that Element struct we're going to parse our XML document into?
+
+#+name:
+#+BEGIN_SRC rust
+struct Element {
+    name: String,
+    attributes: Vec<(String, String)>,
+    children: Vec<Element>,
+}
+#+END_SRC
+
+We've just written the code for parsing the name. The String our parser returns goes right in there. It is also the right parser for the first part of every attribute.
+
+* Combinators
 
 
 
