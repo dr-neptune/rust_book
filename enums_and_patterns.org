@@ -175,5 +175,193 @@ In general, in order to use an Option<T> value, we want to have some code that w
 
 * The match Control Flow Operator
 
+  match allows you to compare a value against a series of patterns and then execute code based on which pattern matches. Patterns can be literals, variables, wildcards, and many other things.
+  The power comes from the expressiveness of the patterns and the fact that the compiler confirms that all possible cases are handled.
 
+#+name:
+#+BEGIN_SRC rust
+enum Coin {
+    Penny,
+    Nickel,
+    Dime,
+    Quarter(UsState),
+}
+
+// takes an unknown coin and determines which coin it is and returns its value in cents
+fn value_in_cents(coin: Coin) -> u8 {
+    match coin {
+        Coin::Penny => {
+            println!("Lucky Penny!");
+            1
+        }
+        Coin::Nickel => 5,
+        Coin::Dime => 10,
+        Coin::Quarter(state) => {
+            println!("State quarter from {:?}!", state);
+            25
+        }
+    }
+}
+
+// we can also bind to the parts of the values that match the pattern. This way we can extract values out of enum variants.
+#[derive(Debug)]
+enum UsState {
+    Alabama,
+    Alaska,
+    // snip
+}
+
+fn main() {
+    println!("{:?}", value_in_cents(Coin::Quarter(UsState::Alaska)))
+}
+#+END_SRC
+
+** Matching with Option<T>
+
+In the previous section, we wanted to get the inner T value out of the Some case when using Option<T>; we can also handle Option<T> using match as we did with the Coin enum.
+   
+#+name:
+#+BEGIN_SRC rust
+// we want to write a fn that takes an Option<i32> and if theres a value inside adds 1 to it. If not, then return the None value and don't perform an operation
+fn plus_one(x: Option<i32>) -> Option<i32> {
+    match x {
+        None => None,
+        Some(i) => Some(i + 1),
+    }
+}
+
+fn main() {
+    let five = Some(5);
+    let six = plus_one(five);
+    let none = plus_one(None);
+
+    println!("{:?} {:?} {:?}", five, six, none);
+}
+#+END_SRC
+
+** Matches are Exhaustive
+
+#+BEGIN_SRC rust
+// we want to write a fn that takes an Option<i32> and if theres a value inside adds 1 to it. If not, then return the None value and don't perform an operation
+fn plus_one(x: Option<i32>) -> Option<i32> {
+    match x {
+        // None => None,
+        Some(i) => Some(i + 1),
+    }
+}
+
+fn main() {
+    let five = Some(5);
+    let six = plus_one(five);
+    let none = plus_one(None);
+
+    println!("{:?} {:?} {:?}", five, six, none);
+}
+#+END_SRC
+
+#+name:
+#+BEGIN_SRC rust
+error[E0004]: non-exhaustive patterns: `None` not covered
+   --> src/main.rs:4:11
+    |
+4   |     match x {
+    |           ^ pattern `None` not covered
+    | 
+   ::: /home/michael/.rustup/toolchains/nightly-x86_64-unknown-linux-gnu/lib/rustlib/src/rust/library/core/src/option.rs:165:5
+    |
+165 |     None,
+    |     ---- not covered
+    |
+    = help: ensure that all possible cases are being handled, possibly by adding wildcards or more match arms
+    = note: the matched value is of type `Option<i32>`
+#+END_SRC
+
+** The _ placeholder
+
+   Rust also has a pattern we can use when we don't want to list all possible values.
+
+#+name:
+#+BEGIN_SRC rust
+fn u8_match(some_u8_value: u8) {
+    match some_u8_value {
+        1 => println!("One"),
+        3 => println!("Three"),
+        5 => println!("Five"),
+        7 => println!("Seven"),
+        _ => (),
+    }
+}
+
+fn main() {
+    let some_val = 3;
+    let some_other_val = 5;
+
+    u8_match(some_val);
+    u8_match(some_other_val); // );
+}
+#+END_SRC
+
+The match expression can be a bit wordy in a situation in which we only care about one of the cases. For this situation, Rust provides if let.
+
+* Concise Control Flow with if let
+
+  The if let syntax lets you combine if and let into a less verbose way to handle values that match one pattern while ignoring the rest.
+
+  Suppose we want to match on an Option<u8> value but only want to execute code if the value is 3
+  
+#+name:
+#+BEGIN_SRC rust
+fn main() {
+    let some_u8_value = Some(0u8);
+    match some_u8_value {
+        Some(3) => println!("Three"),
+        _ => (),
+    }
+}
+#+END_SRC
+
+We want to do something with the Some(3) match, but do nothing with any other Some<u8> value or the None value.
+
+Instead of writing the above, we could write it in a shorter way using if let
+
+#+name:
+#+BEGIN_SRC rust
+fn main() {
+    let some_u8_value = Some(3);
+    if let Some(3) = some_u8_value {
+        println!("Three");
+    }
+}
+#+END_SRC
+
+This means less typing, but we lose the exhaustive checking that match enforces. if let is just syntactic sugar for a match that runs code when the value matches one pattern and then ignores all other values.
+
+We could also add an else with if let
+
+#+name:
+#+BEGIN_SRC rust
+#[derive(Debug)]
+enum UsState {
+    Alabama,
+    Alaska,
+    // --snip--
+}
+
+enum Coin {
+    Penny,
+    Nickel,
+    Dime,
+    Quarter(UsState),
+}
+
+fn main() {
+    let coin = Coin::Penny;
+    let mut count = 0;
+    if let Coin::Quarter(state) = coin {
+        println!("State quarter from {:?}", state);
+    } else {
+        count += 1;
+    }
+}
+#+END_SRC
 

@@ -1442,7 +1442,7 @@ and this CSS file:
  .d { background: #F38630; }
  .e { background: #FA6900; }
  .f { background: #4b0082; }
- .g { background: #800080; } 
+ .g { background: #800080; }
 #+END_SRC
 
 #+name: main
