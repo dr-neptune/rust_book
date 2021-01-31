@@ -1,0 +1,95 @@
+* Learning Parser Combinators with Rust
+
+  All glory to [[https://bodil.lol/parser-combinators/][Bodil's Blog]]
+
+  This teaches the fundamentals of parser combinators.
+
+** Beginner's Mind
+
+There comes a point in the life of every programmer when they find themselves in need of a parser.
+
+The novice programmer will ask, "what is a parser?"
+
+The intermediate programmer will say, "that's easy, I'll write a regular expression."
+
+The master programmer will say, "stand back, I know lex and yacc."
+
+The novice has the right idea.
+
+In the beginner's mind, there are many possibilities. In the expert's mind, there's only the one that the expert got used to.
+
+
+* The Xcruciating Markup Language
+
+   We're going to write a parser for a simplified version of XML:
+
+#+BEGIN_SRC xml
+<parent-element>
+  <single-element attribute="value" />
+</parent-element>
+#+END_SRC
+
+XML elements open with the symbol < and an identifier consisting of a letter followed by any number of letters, numbers, and -. This is followed by some whitespace, and an optional list of attribute pairs: another identifier as defined previously, followed by a = and a double quoted string. Finally there is a closing /> to signify a single element with no children, or a > to signify there is a sequence of child elements following, and finally a closing </, followed by an identifier which must match the opening tag, and a final >.
+
+We are going to parse those elements into a struct that looks like this:
+
+#+name:
+#+BEGIN_SRC rust :tangle combinators/src/lib.rs
+#[derive(Clone, Debug, PartialEq, Eq)]
+struct Element {
+    name: String, // string for a name
+    attributes: Vec<(String, String)>, // attributes as pairs of strings
+    children: Vec<Element>, // a list of child elements that look exactly the same as the parent
+}
+#+END_SRC
+
+* Defining the Parser
+
+  Parsing is a process of deriving structure from a stream of data. In this a parser is a function that takes in some input, and returns either the parsed output along with the remainder of the input, or an error saying "I couldn't parse this".
+
+  Lets write this down as a function type:
+
+#+name:
+#+BEGIN_SRC rust
+Fn(Input) -> Result<(Input, Output), Error>
+
+// more concretely, we can fill out the types because we are converting a string into an Element struct.
+// since we aren't adding error reporting, we'll just return the bit of the string that we couldn't parse as an error
+Fn(&str) -> Result<(&str, Element), &str>
+#+END_SRC
+
+* Our First Parser
+
+#+name:
+#+BEGIN_SRC rust
+// take the first character in a string and decide whether or not its the letter a
+// we take a string slice as input, and return a Result of either (&str, ()), or the error type &str.
+// with (&str, ()), we are returning a type with the next bit of input to parse and the result.
+fn the_letter_a(input: &str) -> Result<(&str, ()), &str> {
+    // get the first character of the input. We ask for the iterator chars() over the characters of the string, and we pull the first item
+    // this will be an item of type char, wrapped in an Option, so Option<char> where None means we tried to pull a char off an empty string
+    match input.chars().next() {
+        Some('a') => Ok((&input['a'.len_utf8()..], ())),
+        _ => Err(input),
+    }
+}
+
+fn main() {
+    let yes = "all your string literals are belong to me";
+    let no = "this is a string literal";
+    let maybe = "";
+    println!(
+        "Starts with the letter a?:\nyes: {:?}\nno: {:?}\nmaybe: {:?}",
+        the_letter_a(yes),
+        the_letter_a(no),
+        the_letter_a(maybe)
+    );
+}
+#+END_SRC
+
+#+RESULTS: 
+: Starts with the letter a?:
+: yes: Ok(("ll your string literals are belong to me", ()))
+: no: Err("this is a string literal")
+: maybe: Err("")
+
