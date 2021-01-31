@@ -69,7 +69,10 @@ fn the_letter_a(input: &str) -> Result<(&str, ()), &str> {
     // get the first character of the input. We ask for the iterator chars() over the characters of the string, and we pull the first item
     // this will be an item of type char, wrapped in an Option, so Option<char> where None means we tried to pull a char off an empty string
     match input.chars().next() {
+	// if we have a successful parse that matches 'a', return our success value Ok(...)
+	// we return 'a'.len_utf8 just to be sure. Its 1, but you never know 
         Some('a') => Ok((&input['a'.len_utf8()..], ())),
+	// if we get anything else, or None, return an error
         _ => Err(input),
     }
 }
@@ -87,9 +90,120 @@ fn main() {
 }
 #+END_SRC
 
+* A Parser Builder
+
+  We need to find the opening <, as well as >, / and = specifically, so we should write a parser that looks for what we want.
+  We will write a fn that produces a parser for a static string of any length, not just a single character. 
+  
+#+name:
+#+BEGIN_SRC rust
+// 'static is a reference lifetime that says that the data pointed to by the ref lives for the entire lifetime of the running program
+// Instead of returning a result, it takes our expected string as an argument and returns something that looks like a parser
+// this is a higher order function.
+// instead of doing the work, we return a closure that does the work and that matches our type signature for a parser
+fn match_literal(expected: &'static str) -> impl Fn(&str) -> Result<(&str, ()), &str> {
+    // move transfers ownership of the item. So in this case, we are transferring ownership of input to the matching Result
+    move |input| match input.get(0..expected.len()) {
+        // if the input is our expected value, return the Ok
+        Some(next) if next == expected => Ok((&input[expected.len()..], ())),
+        // if not, return Err
+        _ => Err(input),
+    }
+}
+
+fn main() {
+    let match_a = match_literal("a");
+    let match_t = match_literal("t");
+    let match_n = match_literal("");
+
+    let yes = "all your string literals are belong to me";
+    let no = "this is a string literal";
+    let maybe = "";
+
+    println!(
+        "Starts with the letter a?:\nyes: {:?}\nno: {:?}\nmaybe: {:?}",
+        match_a(yes),
+        match_t(no),
+        match_n(maybe)
+    );
+}
+#+END_SRC
+
+* Testing Our Parser
+
+#+name:
+#+BEGIN_SRC rust :tangle combinators/src/main.rs
+fn match_literal(expected: &'static str) -> impl Fn(&str) -> Result<(&str, ()), &str> {
+    // move transfers ownership of the item. So in this case, we are transferring ownership of input to the matching Result
+    move |input| match input.get(0..expected.len()) {
+        // if the input is our expected value, return the Ok
+        Some(next) if next == expected => Ok((&input[expected.len()..], ())),
+        // if not, return Err
+        _ => Err(input),
+    }
+}
+
+#[test]
+fn literal_parser() {
+    let parse_joe = match_literal("Hello Joe!");
+
+    assert_eq!(Ok(("", ())), parse_joe("Hello Joe!"));
+    assert_eq!(
+        Ok((" Hello Robert!", ())),
+        parse_joe("Hello Joe! Hello Robert!")
+    );
+    assert_eq!(Err("Hello Mike!"),
+	       parse_joe("Hello Mike!"));
+}
+
+std::str::pattern
+
+#+END_SRC
+
+In order to run the test above, we tangle to main.rs and run cargo test literal_parser -- --exact
+
+* Exercise
+
+  Can you find a method on the str type in the standard library that would let you write match_literal() without having to do the somewhat cumbersome get indexing?
+
+  Sure, lets try std::str::pattern
+
+#+name:
+#+BEGIN_SRC rust
+// fn match_literal(expected: &'static str) -> impl Fn(&str) -> Result<(&str, ()), &str> {
+//     // move transfers ownership of the item. So in this case, we are transferring ownership of input to the matching Result
+//     move |input| match input.get(0..expected.len()) {
+//         // if the input is our expected value, return the Ok
+//         Some(next) if next == expected => Ok((&input[expected.len()..], ())),
+//         // if not, return Err
+//         _ => Err(input),
+//     }
+// }
+
+fn match_literal(expected: &'static str) -> impl Fn(&str) -> Result<(&str, ()), &str> {
+    move |input| match input.find(expected) {
+        Some(next) => Ok((&input[next + expected.len()..], ())),
+        _ => Err(input),
+    }
+}
+
+fn main() {
+    let parse_joe = match_literal("Hello Joe!");
+    println!(
+        "Test 1:\t{:?}\nTest 2:\t{:?}\nTest 3:\t{:?}",
+        parse_joe("Hello Joe!"),
+        parse_joe("Hello Joe! Hello Robert!"),
+        parse_joe("Hello Mike!")
+    );
+}
+#+END_SRC
+
 #+RESULTS: 
-: Starts with the letter a?:
-: yes: Ok(("ll your string literals are belong to me", ()))
-: no: Err("this is a string literal")
-: maybe: Err("")
+: Test 1:	Ok(("", ()))
+: Test 2:	Ok((" Hello Robert!", ()))
+: Test 3:	Err("Hello Mike!")
+
+* A Parser for Something Less Specific
+
+
 
