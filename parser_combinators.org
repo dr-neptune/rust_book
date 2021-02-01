@@ -69,10 +69,10 @@ fn the_letter_a(input: &str) -> Result<(&str, ()), &str> {
     // get the first character of the input. We ask for the iterator chars() over the characters of the string, and we pull the first item
     // this will be an item of type char, wrapped in an Option, so Option<char> where None means we tried to pull a char off an empty string
     match input.chars().next() {
-	// if we have a successful parse that matches 'a', return our success value Ok(...)
-	// we return 'a'.len_utf8 just to be sure. Its 1, but you never know 
+        // if we have a successful parse that matches 'a', return our success value Ok(...)
+        // we return 'a'.len_utf8 just to be sure. Its 1, but you never know
         Some('a') => Ok((&input['a'.len_utf8()..], ())),
-	// if we get anything else, or None, return an error
+        // if we get anything else, or None, return an error
         _ => Err(input),
     }
 }
@@ -89,6 +89,11 @@ fn main() {
     );
 }
 #+END_SRC
+
+: Starts with the letter a?:
+: yes: Ok(("ll your string literals are belong to me", ()))
+: no: Err("this is a string literal")
+: maybe: Err("")
 
 * A Parser Builder
 
@@ -129,6 +134,11 @@ fn main() {
 }
 #+END_SRC
 
+: Starts with the letter a?:
+: yes: Ok(("ll your string literals are belong to me", ()))
+: no: Ok(("his is a string literal", ()))
+: maybe: Ok(("", ()))
+
 * Testing Our Parser
 
 #+name:
@@ -155,9 +165,6 @@ fn literal_parser() {
     assert_eq!(Err("Hello Mike!"),
 	       parse_joe("Hello Mike!"));
 }
-
-std::str::pattern
-
 #+END_SRC
 
 In order to run the test above, we tangle to main.rs and run cargo test literal_parser -- --exact
@@ -211,6 +218,13 @@ fn main() {
 }
 #+END_SRC
 
+: Test 1:	Ok(("", ()))
+: Test 2:	Ok((" Hello Robert!", ()))
+: Test 3:	Err("Hello Mike!")
+: start:	Ok(("parent-element><single-element attribute=\'value\' /></parent-element>", ()))
+: end:		Ok(("<single-element attribute=\'value\' /></parent-element>", ()))
+: 
+
 * A Parser for Something Less Specific
 
   Recalling the rule for the element name identifier, it's as follows: one alphabetical character, followed by zero or more of either an alphabetical character, a number, or a dash -
@@ -256,7 +270,6 @@ fn main() {
 }
 #+END_SRC
 
-
 : First Test:		Ok(("", "i-am-an-identifier"))
 : Second Test:		Ok((" entirely an idenitifier", "not"))
 : Third Test:		Err("!not at all an identifier")
@@ -278,5 +291,438 @@ We've just written the code for parsing the name. The String our parser returns 
 
 * Combinators
 
+  We can now parse <, and the following identifier, but we need to parse both, in order, to be able to make progress. The next step is to write another parser builder function, but one that takes two parsers as inputs and returns a new parser which parses both of them in order. In other words, a parser /combinator/, which /combines/ two parsers into a new one
 
+#+name:
+#+BEGIN_SRC rust
+// takes two parsers as input, and returns a new parser which parses both of them in order
+// Parser 1, Parser 2, Result 1, Result 2. P1, P2 are functions
+// our final result is a parser that returns (R1, R2)
+// runs P1 on input, keeps the result, then runs P2 on what P1 returned, and if they both worked, return the tuple (R1, R2)
+// Fn Type Signature
+// Accepts two parsers
+fn pair<P1, P2, R1, R2>(parser1: P1, parser2: P2) -> impl Fn(&str) -> Result<(&str, (R1, R2)), &str>
+where
+    // they both return parsers
+    P1: Fn(&str) -> Result<(&str, R1), &str>,
+    P2: Fn(&str) -> Result<(&str, R2), &str>,
+{
+    // run P1 on the input
+    move |input| match parser1(input) {
+        // if P1 succeeds, take its return val and run P2 on it
+        Ok((next_input, result1)) => match parser2(next_input) {
+            // if P2 succeeds, return the final input and (R1, R2)
+            Ok((final_input, result2)) => Ok((final_input, (result1, result2))),
+            Err(err) => Err(err),
+        },
+        Err(err) => Err(err),
+    }
+}
+
+fn identifier(input: &str) -> Result<(&str, String), &str> {
+    let mut matched = String::new();
+    let mut chars = input.chars();
+
+    // if there is a letter up front, we push it to matched
+    // we've already got a valid identifier if we match the first letter
+    match chars.next() {
+        Some(next) if next.is_alphabetic() => matched.push(next),
+        // if its not an alphabetic, its not an element identifier
+        _ => return Err(input),
+    }
+
+    // if the first was an alphabetic char, we continue along the string, matching as long as its alphanumeric or a dash
+    while let Some(next) = chars.next() {
+        if next.is_alphanumeric() || next == '-' {
+            matched.push(next);
+        } else {
+            // we don't return an error if the followup isnt alphanumeric + - since its valid to have in the identifier
+            break;
+        }
+    }
+
+    // the first time we see something that doesn't match the criteria, save our spot and return the String we've built
+    let next_index = matched.len();
+    Ok((&input[next_index..], matched))
+}
+
+fn match_literal(expected: &'static str) -> impl Fn(&str) -> Result<(&str, ()), &str> {
+    move |input| match input.find(expected) {
+        Some(next) => Ok((&input[next + expected.len()..], ())),
+        _ => Err(input),
+    }
+}
+
+fn main() {
+    let tag_opener = pair(match_literal("<"), identifier);
+    println!(
+        "First Element:\t{:?}\nNot Quite:\t{:?}\nNope:\t{:?}\n",
+        tag_opener("<my-first-element/>"),
+        tag_opener("oops"),
+        tag_opener("<!too spicy")
+    );
+}
+#+END_SRC
+
+: First Element:	Ok(("/>", ((), "my-first-element")))
+: Not Quite:	Err("oops")
+: Nope:	Err("!too spicy")
+
+It works! But we return a result type ((), String), when we really only care about the String.
+
+Som eof our parsers only match patterns in the input without producing values, and so their outputs can be safely ignored. To accomodate this pattern, we're going to use our pair combinator to write two other combinators:
+- left, which discards the result of the first parser and returns the second
+- right, which discards the () on the LHS of the pair and keeps only our String
+
+* Enter the Functor
+
+  Before we go on, let's talk about another combinator: map
+
+  This combinator has one purpose: to change the type of the result. For instance, if we have a parser that returns ((), String), and we want to return just that String. To do this, we pass it a function that knows how to convert from the original type to the new one. |(_left, right)| right. More generalized, it would look like Fn(A) -> B where A is the original result type of the parser and B is the new one.
+
+#+name:
+#+BEGIN_SRC rust
+// P is our parser. It returns A on success. F is the function we're going to use to map P into our return value, which looks the same as P except its result type is B rather than A
+fn map1<P, F, A, B>(parser: P, map_fn: F) -> impl Fn(&str) -> Result<(&str, B), &str>
+where
+    P: Fn(&str) -> Result<(&str, A), &str>,
+    F: Fn(A) -> B,
+{
+    // run parser(input)
+    move |input| match parser(input) {
+        // if success, take the result and apply the map fn to it and return that
+        Ok((next_input, result)) => Ok((next_input, map_fn(result))),
+        Err(err) => Err(err),
+    }
+}
+
+// map is a common function that Result actually implements
+fn map<P, F, A, B>(parser: P, map_fn: F) -> impl Fn(&str) -> Result<(&str, B), &str>
+where
+    P: Fn(&str) -> Result<(&str, A), &str>,
+    F: Fn(A) -> B,
+{
+    move |input|
+    parser(input)
+	.map(|(next_input, result)| (next_input, map_fn(result)))
+}
+
+fn main() {}
+#+END_SRC
+
+In this case, this is called a functor. If we have a thing with type A in it, and we have a map function available that you can pass a function from A to B into to turn it into the same kind of thing but with type B in it instead, that is a functor. This is common in rust, such as in Option, Result, Iterator, and even Future. This is not explicitly named as such, since we can't express a functor as a generalized thing in Rust's type system (because it lacks higher kinded types).
+
+* Time For A Trait
+
+  From TRPL:
+
+  A Trait tells teh Rust compiler about functionality a particular type has and can share with other types. We can use traits to define shared behavior in an abstract way. We can use trait bounds to specify that a generic can be any type that has certain behavior.
+
+  Back to it: We keep repeating the shape of the parser type signature: Fn(&str) -> Result<(&str, Output), &str>. Instead of writing it out over and over, we can introduce a trait to make things more readable and add to add some extensibility to our parsers.
+
+#+name:
+#+BEGIN_SRC rust
+// make a type alias for that return type we keep using
+// now instead of typing this out all the time, we can just type ParseResult<String> or similar
+// the lifetime is because the type declaration requires it, but a lot of the time the Rust compiler should be able to infer it for you
+// the lifetime 'a specifically refers to the lifetime of the input
+type ParseResult<'a, Output> = Result<(&'a str, Output), &'a str>;
+
+trait Parser<'a, Output> {
+    fn parse(&self, input: &'a str) -> ParseResult<'a, Output>;
+}
+
+// implement this trait for any function that matches the signature of a parser
+// no we can pass around the same functions we've been passing around so far as parsers fully implementing the Parser trait
+impl<'a, F, Output> Parser<'a, Output> for F
+where
+    F: Fn(&'a str) -> ParseResult<Output>,
+{
+    fn parse(&self, input: &'a str) -> ParseResult<'a, Output> {
+        self(input)
+    }
+}
+
+// rewrite map
+fn map<'a, P, F, A, B>(parser: P, map_fn: F) -> impl Parser<'a, B>
+where
+    P: Parser<'a, A>,
+    F: Fn(A) -> B,
+{
+    move |input| {
+        parser
+            // instead of calling the function directly, we now have something that implements parse
+            .parse(input)
+            .map(|(next_input, result)| (next_input, map_fn(result)))
+    }
+}
+
+// rewrite the pair function
+fn pair1<'a, P1, P2, R1, R2>(parser1: P1, parser2: P2) -> impl Parser<'a, (R1, R2)>
+where
+    P1: Parser<'a, R1>,
+    P2: Parser<'a, R2>,
+{
+    // if parser matches input
+    move |input| match parser1.parse(input) {
+        // match the next input with parser2
+        Ok((next_input, result1)) => match parser2.parse(next_input) {
+            // if that works, then massage it into a form we want
+            Ok((final_input, result2)) => Ok((final_input, (result1, result2))),
+            Err(err) => Err(err),
+        },
+        Err(err) => Err(err),
+    }
+}
+
+// rewrite pair with map
+fn pair<'a, P1, P2, R1, R2>(parser1: P1, parser2: P2) -> impl Parser<'a, (R1, R2)>
+where
+    P1: Parser<'a, R1>,
+    P2: Parser<'a, R2>,
+{
+    move |input| {
+	// and_then on Result is similar to map but it returns a new Result 
+        parser1.parse(input).and_then(|(next_input, result1)| {
+            parser2
+                .parse(next_input)
+                .map(|(last_input, result2)| (last_input, (result1, result2)))
+        })
+    }
+}
+
+fn main() {}
+#+END_SRC
+
+* Left and Right
+
+#+name:
+#+BEGIN_SRC rust
+type ParseResult<'a, Output> = Result<(&'a str, Output), &'a str>;
+
+trait Parser<'a, Output> {
+    fn parse(&self, input: &'a str) -> ParseResult<'a, Output>;
+}
+
+// implement this trait for any function that matches the signature of a parser
+// no we can pass around the same functions we've been passing around so far as parsers fully implementing the Parser trait
+impl<'a, F, Output> Parser<'a, Output> for F
+where
+    F: Fn(&'a str) -> ParseResult<Output>,
+{
+    fn parse(&self, input: &'a str) -> ParseResult<'a, Output> {
+        self(input)
+    }
+}
+
+// rewrite pair with map
+fn pair<'a, P1, P2, R1, R2>(parser1: P1, parser2: P2) -> impl Parser<'a, (R1, R2)>
+where
+    P1: Parser<'a, R1>,
+    P2: Parser<'a, R2>,
+{
+    move |input| {
+        // and_then on Result is similar to map but it returns a new Result
+        parser1.parse(input).and_then(|(next_input, result1)| {
+            parser2
+                .parse(next_input)
+                .map(|(last_input, result2)| (last_input, (result1, result2)))
+        })
+    }
+}
+
+fn map<'a, P, F, A, B>(parser: P, map_fn: F) -> impl Parser<'a, B>
+where
+    P: Parser<'a, A>,
+    F: Fn(A) -> B,
+{
+    move |input| {
+        parser
+            // instead of calling the function directly, we now have something that implements parse
+            .parse(input)
+            .map(|(next_input, result)| (next_input, map_fn(result)))
+    }
+}
+
+// use the pair combinator to combine the two parsers into a parser for a tuple of their Results, and then use the map combinator to select the ones we want
+fn left<'a, P1, P2, R1, R2>(parser1: P1, parser2: P2) -> impl Parser<'a, R1>
+where
+    P1: Parser<'a, R1>,
+    P2: Parser<'a, R2>,
+{
+    map(pair(parser1, parser2), |(left, _right)| left)
+}
+
+fn right<'a, P1, P2, R1, R2>(Parser1: P1, Parser2: P2) -> impl Parser<'a, R2>
+where
+    P1: Parser<'a, R1>,
+    P2: Parser<'a, R2>,
+{
+    map(pair(Parser1, Parser2), |(_left, right)| right)
+}
+
+// we need to update our two parsers to use Parser and ParseResult
+fn match_literal<'a>(expected: &'static str) -> impl Parser<'a, ()> {
+    move |input: &'a str| match input.get(0..expected.len()) {
+        Some(next) if next == expected => Ok((&input[expected.len()..], ())),
+        _ => Err(input),
+    }
+}
+
+// for identifier, just change the return type and its done
+fn identifier(input: &str) -> ParseResult<String> {
+    let mut matched = String::new();
+    let mut chars = input.chars();
+
+    // if there is a letter up front, we push it to matched
+    // we've already got a valid identifier if we match the first letter
+    match chars.next() {
+        Some(next) if next.is_alphabetic() => matched.push(next),
+        // if its not an alphabetic, its not an element identifier
+        _ => return Err(input),
+    }
+
+    // if the first was an alphabetic char, we continue along the string, matching as long as its alphanumeric or a dash
+    while let Some(next) = chars.next() {
+        if next.is_alphanumeric() || next == '-' {
+            matched.push(next);
+        } else {
+            // we don't return an error if the followup isnt alphanumeric + - since its valid to have in the identifier
+            break;
+        }
+    }
+
+    // the first time we see something that doesn't match the criteria, save our spot and return the String we've built
+    let next_index = matched.len();
+    Ok((&input[next_index..], matched))
+}
+
+fn main() {
+    let tag_opener = right(match_literal("<"), identifier);
+
+    println!(
+        "First Test:\t{:?}\nSecond Test:\t{:?}\nThird Test:\t{:?}",
+        tag_opener.parse("<my-first-element/>"),
+        tag_opener.parse("oops"),
+        tag_opener.parse("<!oops")
+    );
+}
+#+END_SRC
+
+First Test:	Ok(("/>", "my-first-element"))
+Second Test:	Err("oops")
+Third Test:	Err("!oops")
+
+* One Or More
+
+  We have an opening <, and we've got an identifier. Next should be out first attribute pair.
+
+  But first we need to deal with whitespace, either a single instance of, or multiple in a row.
+
+  We should write a combinator that expresses the idea of one or more parsers.
+
+#+name:
+#+BEGIN_SRC rust
+type ParseResult<'a, Output> = Result<(&'a str, Output), &'a str>;
+
+trait Parser<'a, Output> {
+    fn parse(&self, input: &'a str) -> ParseResult<'a, Output>;
+}
+
+// implement this trait for any function that matches the signature of a parser
+// no we can pass around the same functions we've been passing around so far as parsers fully implementing the Parser trait
+impl<'a, F, Output> Parser<'a, Output> for F
+where
+    F: Fn(&'a str) -> ParseResult<Output>,
+{
+    fn parse(&self, input: &'a str) -> ParseResult<'a, Output> {
+        self(input)
+    }
+}
+
+// return type of the parser is A, and the return type from the combinator parser is Vec<A> -- any number of As
+fn one_or_more<'a, P, A>(parser: P) -> impl Parser<'a, Vec<A>>
+where
+    P: Parser<'a, A>,
+{
+    move |mut input| {
+        let mut result = Vec::new();
+        // if the first element is parsed, then add it to the result
+        if let Ok((next_input, first_item)) = parser.parse(input) {
+            input = next_input;
+            result.push(first_item);
+        } else {
+            return Err(input);
+        }
+        // then keep parsing until the parser fails
+        while let Ok((next_input, next_item)) = parser.parse(input) {
+            input = next_input;
+            result.push(next_item);
+        }
+
+        Ok((input, result))
+    }
+}
+
+// we can adapt the above to 0 or more
+fn zero_or_more<'a, P, A>(parser: P) -> impl Parser<'a, Vec<A>>
+where
+    P: Parser<'a, A>,
+{
+    move |mut input| {
+        let mut result = Vec::new();
+
+        while let Ok((next_input, next_item)) = parser.parse(input) {
+            input = next_input;
+            result.push(next_item);
+        }
+
+        Ok((input, result))
+    }
+}
+
+// we need to update our two parsers to use Parser and ParseResult
+fn match_literal<'a>(expected: &'static str) -> impl Parser<'a, ()> {
+    move |input: &'a str| match input.get(0..expected.len()) {
+        Some(next) if next == expected => Ok((&input[expected.len()..], ())),
+        _ => Err(input),
+    }
+}
+
+fn main() {
+    // one or more
+    let parser1 = one_or_more(match_literal("ha"));
+    let parser0 = zero_or_more(match_literal("ha"));
+
+    println!("P1 Test 1:\t{:?}\nP1 Test 2:\t{:?}\nP1 Test 3:\t{:?}\nP0 Test 1:\t{:?}\nP0 Test 2:\t{:?}\nP0 Test 3:\t{:?}",
+	     parser1.parse("hahaha"),
+	     parser1.parse("ahah"),
+	     parser1.parse(""),
+	     parser0.parse("hahaha"),
+	     parser0.parse("ahah"),
+	     parser0.parse(""));
+}
+#+END_SRC
+
+: P1 Test 1:	Ok(("", [(), (), ()]))
+: P1 Test 2:	Err("ahah")
+: P1 Test 3:	Err("")
+: P0 Test 1:	Ok(("", [(), (), ()]))
+: P0 Test 2:	Ok(("ahah", []))
+: P0 Test 3:	Ok(("", []))
+
+At this point, its tempting to express one_or_more in terms of zero_or_more with something like this:
+
+#+name:
+#+BEGIN_SRC rust
+fn one_or_more<'a, P, A>(parser: P) -> impl Parser<'a, Vec<A>>
+where
+    P: Parser<'a, A>,
+{
+    map(pair(parser, zero_or_more(parser)), |(head, mut tail)| {
+	tail.insert(0, head);
+	tail
+    })
+}
+#+END_SRC
 
