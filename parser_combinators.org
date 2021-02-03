@@ -29,7 +29,7 @@ In the beginner's mind, there are many possibilities. In the expert's mind, ther
 </parent-element>
 #+END_SRC
 
-XML elements open with the symbol < and an identifier consisting of a letter followed by any number of letters, numbers, and -. This is followed by some whitespace, and an optional list of attribute pairs: another identifier as defined previously, followed by a = and a double quoted string. Finally there is a closing /> to signify a single element with no children, or a > to signify there is a sequence of child elements following, and finally a closing </, followed by an identifier which must match the opening tag, and a final >.
+XML elements open with the symbol < and an identifier consisting of a letter followed by any number of letters, numbers, and -. This is followed by some whitespace, and an optional list of attribute pairs: another identifier as defined previously, followed by a = and a double quoted string. Finally there is a closing /> to signify a gingle element with no children, or a > to signify there is a sequence of child elements following, and finally a closing </, followed by an identifier which must match the opening tag, and a final >.
 
 We are going to parse those elements into a struct that looks like this:
 
@@ -58,9 +58,9 @@ struct Element {
 
 type ParseResult<'a, Output> = Result<(&'a str, Output), &'a str>;
 
-trait Parser<'a, Output> {
-    fn parse(&self, input: &'a str) -> ParseResult<'a, Output>;
-}
+// trait Parser<'a, Output> {
+//     fn parse(&self, input: &'a str) -> ParseResult<'a, Output>;
+// }
 
 // implement this trait for any function that matches the signature of a parser
 // no we can pass around the same functions we've been passing around so far as parsers fully implementing the Parser trait
@@ -221,7 +221,7 @@ where
 
 // whitespace_char parser
 fn whitespace_char<'a>() -> impl Parser<'a, char> {
-    pred(any_char, |c| c.is_whitespace())
+    any_char.pred(|c| c.is_whitespace())
 }
 
 // implement one or more and zero or more whitespace
@@ -234,25 +234,25 @@ fn space0<'a>() -> impl Parser<'a, Vec<char>> {
 }
 
 // parses quoted strings
-fn quoted_string<'a>() -> impl Parser<'a, String> {
-    // used for type coercion
-    map(
-	right(
-	    // opening quote
-	    match_literal("\""),
-	    // the quoted string
-	    left(
-		// get characters
-		// matches anything but another quote
-		zero_or_more(pred(any_char, |c| *c != '"')), 
-		// up to matching the ending bracket
-		match_literal("\""),
-	    ),
-	),
-	// convert our returned Vec into a String by coercion to iter and collect
-	|chars| chars.into_iter().collect(),
-    )
-}
+// fn quoted_string<'a>() -> impl Parser<'a, String> {
+//     // used for type coercion
+//     map(
+// 	right(
+// 	    // opening quote
+// 	    match_literal("\""),
+// 	    // the quoted string
+// 	    left(
+// 		// get characters
+// 		// matches anything but another quote
+// 		zero_or_more(pred(any_char, |c| *c != '"')), 
+// 		// up to matching the ending bracket
+// 		match_literal("\""),
+// 	    ),
+// 	),
+// 	// convert our returned Vec into a String by coercion to iter and collect
+// 	|chars| chars.into_iter().collect(),
+//     )
+// }
 
 fn attribute_pair<'a>() -> impl Parser<'a, (String, String)> {
     // pair is a combinator for parsing a tuple of values
@@ -268,6 +268,86 @@ fn attributes<'a>() -> impl Parser<'a, Vec<(String, String)>> {
     // zero or more occurrences of whitespace, then an attribute pair.
     // use right to discard the whitespace, keep the pair
     zero_or_more(right(space1(), attribute_pair()))
+}
+
+// the dyn keyword is used to highlight that calls to methods on the associated Trait are dynamically dispatched.
+// holds our Box
+struct BoxedParser<'a, Output> {
+    parser: Box<dyn Parser<'a, Output> + 'a>,
+}
+
+// created a new boxed parser. This just puts our parser inside of a Box
+impl<'a, Output> BoxedParser<'a, Output> {
+    fn new<P>(parser: P) -> Self
+    where
+	P: Parser<'a, Output> + 'a,
+    {
+	BoxedParser {
+	    parser: Box::new(parser),
+	}
+    }
+}
+
+// make it interchangable for parser
+impl<'a, Output> Parser<'a, Output> for BoxedParser<'a, Output> {
+    fn parse(&self, input: &'a str) -> ParseResult<'a, Output> {
+	self.parser.parse(input)
+    }
+}
+
+trait Parser<'a, Output> {
+    fn parse(&self, input: &'a str) -> ParseResult<'a, Output>;
+
+    fn map<F, NewOutput>(self, map_fn: F) -> BoxedParser<'a, NewOutput>
+    where
+	Self: Sized + 'a,
+	Output: 'a,
+	NewOutput: 'a,
+	F: Fn(Output) -> NewOutput + 'a,
+    {
+	BoxedParser::new(map(self, map_fn))
+    }
+
+    fn pred<F>(self, pred_fn: F) -> BoxedParser<'a, Output>
+    where
+	Self: Sized + 'a,
+	Output: 'a,
+	F: Fn(&Output) -> bool + 'a,
+    {
+	BoxedParser::new(pred(self, pred_fn))
+    }
+}
+
+// fn pred<F>(self, pred_fn: F) -> BoxedParser<'a, Output>
+// where
+//     Self: Sized + 'a,
+//     Output: 'a,
+//     F: Fn(&Output) -> bool + 'a,
+// {
+//     BoxedParser::new(pred(self, pred_fn))
+// }
+
+fn element_start<'a>() -> impl Parser<'a, (String, Vec<(String, String)>)> {
+    right(match_literal("<"),
+	  pair(identifier, attributes()))
+}
+
+fn quoted_string<'a>() -> impl Parser<'a, String> {
+    right(
+	match_literal("\""),
+	left(
+	    zero_or_more(any_char.pred(|c| *c != '"')),
+	    match_literal("\""),
+	),
+    ).map(|chars| chars.into_iter().collect())
+}
+
+fn single_element<'a>() -> impl Parser<'a, Element> {
+    left(element_start(), match_literal("/>")).map(|(name, attributes)| Element {
+	name,
+	attributes,
+	children: vec![],
+    })
 }
 
 #+END_SRC
@@ -854,9 +934,9 @@ Third Test:	Err("!oops")
 #+BEGIN_SRC rust
 type ParseResult<'a, Output> = Result<(&'a str, Output), &'a str>;
 
-trait Parser<'a, Output> {
-    fn parse(&self, input: &'a str) -> ParseResult<'a, Output>;
-}
+// trait Parser<'a, Output> {
+//     fn parse(&self, input: &'a str) -> ParseResult<'a, Output>;
+// }
 
 // implement this trait for any function that matches the signature of a parser
 // no we can pass around the same functions we've been passing around so far as parsers fully implementing the Parser trait
@@ -1082,23 +1162,23 @@ Let's see if we can get a result type of (String, Vec<(String, String)>) out of 
 #+BEGIN_SRC rust :noweb yes
 <<preamble>>
 
-fn element_start<'a>() -> impl Parser<'a, (String, Vec<(String, String)>)> {
-    right(match_literal("<"),
-	  pair(identifier, attributes()))
-}
+// fn element_start<'a>() -> impl Parser<'a, (String, Vec<(String, String)>)> {
+//     right(match_literal("<"),
+// 	  pair(identifier, attributes()))
+// }
 
-// parser for a single element
-fn single_element<'a>() -> impl Parser<'a, Element> {
-    map(
-	left(element_start(), match_literal("/>")),
-	// construct ze element
-	|(name, attributes)| Element {
-	    name,
-	    attributes,
-	    children: vec![],
-	}
-    )
-}
+// // parser for a single element
+// fn single_element<'a>() -> impl Parser<'a, Element> {
+//     map(
+// 	left(element_start(), match_literal("/>")),
+// 	// construct ze element
+// 	|(name, attributes)| Element {
+// 	    name,
+// 	    attributes,
+// 	    children: vec![],
+// 	}
+//     )
+// }    
 
 fn main() {
     println!("First Test:\t{:#?}",
@@ -1133,4 +1213,124 @@ Unfortunately, it is slow. And in Rust, we don't do slow.
 
 * To Infinity and Beyond
 
+  In order to write a recursive type, we need to use a pointer. Instead of our list being an element of A and another list of A, instead we make it an element of A and a pointer to a list of A.
+  The way to turn an owned thing into a pointer to an owned thing on the heap in Rust is to Box it.
+  
+#+name:
+#+BEGIN_SRC rust
+// not this
+enum List<A> {
+    Cons(A, List<A>),
+    Nil,
+}
+
+// this
+enum List<A> {
+    Cons(A, Box<List<A>>),
+    Nil,
+}
+#+END_SRC
+
+An interesting feature of Box is that the type inside it can be abstract. Instead of our incredibly complicated parser function types, we can let the type checker deal with a very succinct Box<dyn Parser<'a, A>> instead.
+
+So we will implement Parser for a boxed parser function in addition to the bare functions we've been using so far.
+
+#+name:
+#+BEGIN_SRC rust :noweb yes
+<<preamble>>
+
+// the dyn keyword is used to highlight that calls to methods on the associated Trait are dynamically dispatched.
+// holds our Box
+struct BoxedParser<'a, Output> {
+    parser: Box<dyn Parser<'a, Output> + 'a>,
+}
+
+// created a new boxed parser. This just puts our parser inside of a Box
+impl<'a, Output> BoxedParser<'a, Output> {
+    fn new<P>(parser: P) -> Self
+    where
+	P: Parser<'a, Output> + 'a,
+    {
+	BoxedParser {
+	    parser: Box::new(parser),
+	}
+    }
+}
+
+// make it interchangable for parser
+impl<'a, Output> Parser<'a, Output> for BoxedParser<'a, Output> {
+    fn parse(&self, input: &'a str) -> ParseResult<'a, Output> {
+	self.parser.parse(input)
+    }
+}
+#+END_SRC
+
+* An Opportunity Presents itself
+
+Because our combinators are standalone functions, when we nest a nontrivial number of them, our code starts to get a bit unreadable.
+
+We wish to declare our combinators as methods on the Parser trait. If we do that though, we lose the ability to lean on impl Trait for our return types, since impl Trait isn't allowed in trait declarations.
+But now, since we have BoxedParser, we can declare a trait method that returns BoxedParser<'a, A>
+
+We can even declare these with default implementations, so that we don't have to reimplement every combinator for every type that implements Parser.
+
+#+name:
+#+BEGIN_SRC rust :noweb yes
+trait Parser<'a, Output> {
+    fn parse(&self, input: &'a str) -> ParseResult<'a, Output>;
+
+    fn map<F, NewOutput>(self, map_fn: F) -> BoxedParser<'a, NewOutput>
+    where
+	Self: Sized + 'a,
+	Output: 'a,
+	NewOutput: 'a,
+	F: Fn(Output) -> NewOutput + 'a,
+    {
+	BoxedParser::new(map(self, map_fn))
+    }
+
+    fn pred<F>(self, pred_fn: F) -> BoxedParser<'a, Output>
+    where
+	Self: Sized + 'a,
+	Output: 'a,
+	F: Fn(&Output) -> bool + 'a,
+    {
+	BoxedParser::new(pred(self, pred_fn))
+    }
+}
+#+END_SRC
+
+We can still use our old combinator functions unchanged, and as an added bonus, we get both a nicer syntax for applying them and we get rid of explosive impl Trait types by boxing them up automatically.
+
+#+name:
+#+BEGIN_SRC rust
+fn pred<F>(self, pred_fn: F) -> BoxedParser<'a, Output>
+where
+    Self: Sized + 'a,
+    Output: 'a,
+    F: Fn(&Output) -> bool + 'a,
+{
+    BoxedParser::new(pred(self, pred_fn))
+}
+
+fn quoted_string<'a>() -> impl Parser<'a, String> {
+    right(
+	match_literal("\""),
+	left(
+	    zero_or_more(any_char.pred(|c| *c != '"')),
+	    match_literal("\""),
+	),
+    ).map(|chars| chars.into_iter().collect())
+}
+
+fn single_element<'a>() -> impl Parser<'a, Element> {
+    left(element_start(), match_literal("/>")).map(|(name, attributes)| Element {
+	name,
+	attributes,
+	children: vec![],
+    })
+}
+#+END_SRC
+
+* Having Children 
 
