@@ -316,6 +316,21 @@ trait Parser<'a, Output> {
     {
 	BoxedParser::new(pred(self, pred_fn))
     }
+
+    // we run out parser of type P first, and if it succeeds
+    // we call the function f with the result of parser P to get our next parser of type NextP
+    // which we then run and return
+    // this gets added to the Parser trait
+    fn and_then<F, NextParser, NewOutput>(self, f: F) -> BoxedParser<'a, NewOutput>
+    where
+	Self: Sized + 'a,
+	Output: 'a,
+	NewOutput: 'a,
+	NextParser: Parser<'a, NewOutput> + 'a,
+	F: Fn(Output) -> NextParser + 'a,
+    {
+	BoxedParser::new(and_then(self, f))
+    }
 }
 
 // fn pred<F>(self, pred_fn: F) -> BoxedParser<'a, Output>
@@ -350,6 +365,69 @@ fn single_element<'a>() -> impl Parser<'a, Element> {
     })
 }
 
+// parser for the opening tag for a parent element
+fn open_element<'a>() -> impl Parser<'a, Element> {
+    left(element_start(), match_literal(">")).map(|(name, attributes)| Element {
+	name,
+	attributes,
+	children: vec![],
+    })
+}
+
+// children need to either be single elements or parent elements, and there are zero or more of them
+// we will make a multiple choice parser: something that parses either a single element or a parent element
+fn either<'a, P1, P2, A>(parser1: P1, parser2: P2) -> impl Parser<'a, A>
+where
+    P1: Parser<'a, A>,
+    P2: Parser<'a, A>,
+{
+    move |input| match parser1.parse(input) {
+	ok @ Ok(_) => ok,
+	Err(_) => parser2.parse(input),
+    }
+}
+
+// matches either a single element or a parent element
+fn element<'a>() -> impl Parser<'a, Element> {
+    either(single_element(), parent_element())
+}
+
+// parser for the closing tag. It has to match the opening tag, which means the parser needs to know what the name of the opening tag is. We will use a function argument
+fn close_element<'a>(expected_name: String) -> impl Parser<'a, String> {
+    right(match_literal("</"),
+          left(identifier, match_literal(">")))
+	  .pred(move |name| name == &expected_name)
+}
+
+// we need something that takes a parser, and a function that takes the result of a parser, and returns a new parser, which is then run
+// its like pair, but instead of just collecting both results in a tuple, we thread them through a function
+fn and_then<'a, P, F, A, B, NextP>(parser: P, f: F) -> impl Parser<'a, B>
+where
+    P: Parser<'a, A>,
+    NextP: Parser<'a, B>,
+    F: Fn(A) -> NextP,
+{
+    move |input| match parser.parse(input) {
+	Ok((next_input, result)) => f(result).parse(next_input),
+	Err(err) => Err(err),
+    }
+}
+
+// we can use and_then to lazily generate the right version of our close_element parser (we get it to pass that argument into it)
+fn parent_element<'a>() -> impl Parser<'a, Element> {
+    // get opening element, and then take the rest and
+    open_element().and_then(|e1| {
+	// get the name that goes into close_element
+	left(zero_or_more(element()),
+	     close_element(e1.name.clone()))
+	    // clone the children objects because we are inside a Fn and thus only have a reference to it
+	    .map(move |children| {
+		let mut e1 = e1.clone();
+		e1.children = children;
+		e1
+	    })
+    })
+}
 #+END_SRC
 
 * Defining the Parser
@@ -1288,7 +1366,7 @@ trait Parser<'a, Output> {
     {
 	BoxedParser::new(map(self, map_fn))
     }
-
+   
     fn pred<F>(self, pred_fn: F) -> BoxedParser<'a, Output>
     where
 	Self: Sized + 'a,
@@ -1333,4 +1411,111 @@ fn single_element<'a>() -> impl Parser<'a, Element> {
 #+END_SRC
 
 * Having Children 
+
+  Now we can write the parser for the opening tag for a parent element. It's almost identical to a single_element, except that it ends in a > rather than a />.
+  It's also followed by zero or more children and a closing tag, but first we need to parse the actual opening tag
+
+#+name:
+#+BEGIN_SRC rust
+// parser for the opening tag for a parent element
+fn open_element<'a>() -> impl Parser<'a, Element> {
+    left(element_start(), match_literal(">")).map(|(name, attributes)| Element {
+	name,
+	attributes,
+	children: vec![],
+    })
+}
+
+// children need to either be single elements or parent elements, and there are zero or more of them
+// we will make a multiple choice parser: something that parses either a single element or a parent element
+fn either<'a, P1, P2, A>(parser1: P1, parser2: P2) -> impl Parser<'a, A>
+where
+    P1: Parser<'a, A>,
+    P2: Parser<'a, A>,
+{
+    move |input| match parser1.parse(input) {
+	ok @ Ok(_) => ok,
+	Err(_) => parser2.parse(input),
+    }
+}
+
+// matches either a single element or a parent element
+fn element<'a>() -> impl Parser<'a, Element> {
+    either(single_element(), parent_element())
+}
+
+// parser for the closing tag. It has to match the opening tag, which means the parser needs to know what the name of the opening tag is. We will use a function argument
+fn close_element<'a>(expected_name: String) -> impl Parser<'a, String> {
+    right(match_literal("</"),
+          left(identifier, match_literal(">")))
+	.pred(move |name| name == &expected_name)
+}
+
+// we need something that takes a parser, and a function that takes the result of a parser, and returns a new parser, which is then run
+// its like pair, but instead of just collecting both results in a tuple, we thread them through a function
+fn and_then<'a, P, F, A, B, NextP>(parser: P, f: F) -> impl Parser<'a, B>
+where
+    P: Parser<'a, A>,
+    NextP: Parser<'a, B>,
+    F: Fn(A) -> NextP,
+{
+    move |input| match parser.parse(input) {
+	Ok((next_input, result)) => f(result).parse(next_input),
+	Err(err) => Err(err),
+    }
+}
+#+END_SRC
+
+#+name:
+#+BEGIN_SRC rust
+// we run out parser of type P first, and if it succeeds
+// we call the function f with the result of parser P to get our next parser of type NextP
+// which we then run and return
+// this gets added to the Parser trait
+fn and_then<F, NextParser, NewOutput>(self, f: F) -> BoxedParser<'a, NewOutput>
+where
+    Self: Sized + 'a,
+    Output: 'a,
+    NewOutput: 'a,
+    NextParser: Parser<'a, NewOutput> + 'a,
+    F: Fn(Output) -> NextParser + 'a,
+{
+    BoxedParser::new(and_then(self, f))
+}
+
+// we can use and_then to lazily generate the right version of our close_element parser (we get it to pass that argument into it)
+fn parent_element<'a>() -> impl Parser<'a, Element> {
+    // get opening element, and then take the rest and
+    open_element().and_then(|e1| {
+	// get the name that goes into close_element
+	left(zero_or_more(element()),
+	     close_element(e1.name.clone()))
+	    // clone the children objects because we are inside a Fn and thus only have a reference to it
+	    .map(move |children| {
+		let mut e1 = e1.clone();
+		e1.children = children;
+		e1
+	    })
+    })
+}
+#+END_SRC
+
+* The M Word
+
+  The and_then pattern is another thing commonly seen in Rust, in generally the same places as map.
+
+  It's called flat_map on Iterator, but its the same pattern as the rest.
+
+  The fancy word for it is "monad". If you've got Thing<A>, and you have an and_then function available that you can pass a function from A to Thing<B> into, so that now you have a new Thing<B> instead, that's a monad.
+
+  The function might get called instantly, when you have an Option<A>, we already know if it's a Some(A) or a None, so we apply the function directly if it's a Some(A), giving us a Some(B).
+
+  It might also be called lazily. For instance, if we have a Future<A> that is still waiting to resolve, instead of and_then immediately calling the function to create a Future<B>, instead it creates a new Future<B> which contains both the Future<A> and the function, and which then waits for Future<A> to finish. When it does, it calls the function  with the result of the Future<A>, and we get our Future<B> back. In the case of a Future, we can think of the function you pass to and_then as a callback function, because it gets called with the result of the original future when it completes. Since it returns a new Future, which may or may not be resolved, it is a way to chain futures together.
+
+
+
+  
+* Whitespace, Redux
+
+
 
