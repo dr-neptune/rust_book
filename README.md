@@ -19,3 +19,9 @@ browser_engine.org:
 [Let's Build a Browser Engine!](https://limpet.net/mbrubeck/2014/08/08/toy-layout-engine-1.html)
 
 Also worth reading this: [How Browsers Work: Behind the Scenes of Modern Web Browsers](https://www.html5rocks.com/en/tutorials/internals/howbrowserswork/)
+
+**Chapters 5 + 6**
+
+parser_combinators.org
+
+[Learning Parser Combinators with Rust](https://bodil.lol/parser-combinators/)
