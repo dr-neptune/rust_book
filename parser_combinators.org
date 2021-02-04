@@ -1559,7 +1559,16 @@ fn main() {
             <semi-bottom label="Bottom"/>
             <middle>
                 <bottom label="Another bottom"/>
+                <thenextone>
+                    <third-bottom label="The Bottom"/>
+                </thenextone>
             </middle>
+            <muddle>
+                <mbottom label="Another bottom"/>
+                <thenextnextone>
+                    <fourth-bottom label="The Bottom"/>
+                </thenextnextone>
+            </muddle>
         </top>"#;
 
     let doc_fail = r#"
@@ -1573,9 +1582,6 @@ fn main() {
 }
 #+END_SRC
 
-
-
-#+name:
 #+BEGIN_SRC rust
 Parsed Document:
 Ok(
@@ -1614,6 +1620,54 @@ Ok(
                             ],
                             children: [],
                         },
+                        Element {
+                            name: "thenextone",
+                            attributes: [],
+                            children: [
+                                Element {
+                                    name: "third-bottom",
+                                    attributes: [
+                                        (
+                                            "label",
+                                            "The Bottom",
+                                        ),
+                                    ],
+                                    children: [],
+                                },
+                            ],
+                        },
+                    ],
+                },
+                Element {
+                    name: "muddle",
+                    attributes: [],
+                    children: [
+                        Element {
+                            name: "mbottom",
+                            attributes: [
+                                (
+                                    "label",
+                                    "Another bottom",
+                                ),
+                            ],
+                            children: [],
+                        },
+                        Element {
+                            name: "thenextnextone",
+                            attributes: [],
+                            children: [
+                                Element {
+                                    name: "fourth-bottom",
+                                    attributes: [
+                                        (
+                                            "label",
+                                            "The Bottom",
+                                        ),
+                                    ],
+                                    children: [],
+                                },
+                            ],
+                        },
                     ],
                 },
             ],
@@ -1625,6 +1679,9 @@ Err(
     "</middle>",
 )
 #+END_SRC
+
+
+
 
 Woohoo, we wrote a parser from scratch using parser combinators!
 We know that a parser forms both a functor and a monad
