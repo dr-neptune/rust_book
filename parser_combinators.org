@@ -387,10 +387,10 @@ where
     }
 }
 
-// matches either a single element or a parent element
-fn element<'a>() -> impl Parser<'a, Element> {
-    either(single_element(), parent_element())
-}
+// // matches either a single element or a parent element
+// fn element<'a>() -> impl Parser<'a, Element> {
+//     either(single_element(), parent_element())
+// }
 
 // parser for the closing tag. It has to match the opening tag, which means the parser needs to know what the name of the opening tag is. We will use a function argument
 fn close_element<'a>(expected_name: String) -> impl Parser<'a, String> {
@@ -428,6 +428,19 @@ fn parent_element<'a>() -> impl Parser<'a, Element> {
 	    })
     })
 }
+
+fn whitespace_wrap<'a, P, A>(parser: P) -> impl Parser<'a, A>
+where
+    P: Parser<'a, A>,
+{
+    right(space0(), left(parser, space0()))
+}
+
+// if we wrap element in that, it will ignore all leading and trailing whitespace around element
+fn element<'a>() -> impl Parser<'a, Element> {
+    whitespace_wrap(either(single_element(), parent_element()))
+}
+
 #+END_SRC
 
 * Defining the Parser
@@ -1517,5 +1530,101 @@ fn parent_element<'a>() -> impl Parser<'a, Element> {
   
 * Whitespace, Redux
 
+  We should have a parser capable of parsing XML now, but it's not very appreciative of whitespace. Arbitrary whitespace should be allowed between tags, so that we're free to insert line breaks and such between our tags.
+
+#+name:
+#+BEGIN_SRC rust
+fn whitespace_wrap<'a, P, A>(parser: P) -> impl Parser<'a, A>
+where
+    P: Parser<'a, A>,
+{
+    right(space0(), left(parser, space0()))
+}
+
+// if we wrap element in that, it will ignore all leading and trailing whitespace around element
+fn element<'a>() -> impl Parser<'a, Element> {
+    whitespace_wrap(either(single_element(), parent_element()))
+}
+#+END_SRC
+
+* We're Finally There!
+
+#+name:
+#+BEGIN_SRC rust :noweb yes
+<<preamble>>
+
+fn main() {
+    let doc = r#"
+        <top label="Top">
+            <semi-bottom label="Bottom"/>
+            <middle>
+                <bottom label="Another bottom"/>
+            </middle>
+        </top>"#;
+
+    let doc_fail = r#"
+        <top>
+            <bottom/>
+        </middle>"#;
+    
+    println!("Parsed Document:\n{:#?}\nFailed Parse:\n{:#?}",
+	     element().parse(doc),
+	     element().parse(doc_fail));
+}
+#+END_SRC
 
 
+
+#+name:
+#+BEGIN_SRC rust
+Parsed Document:
+Ok(
+    (
+        "",
+        Element {
+            name: "top",
+            attributes: [
+                (
+                    "label",
+                    "Top",
+                ),
+            ],
+            children: [
+                Element {
+                    name: "semi-bottom",
+                    attributes: [
+                        (
+                            "label",
+                            "Bottom",
+                        ),
+                    ],
+                    children: [],
+                },
+                Element {
+                    name: "middle",
+                    attributes: [],
+                    children: [
+                        Element {
+                            name: "bottom",
+                            attributes: [
+                                (
+                                    "label",
+                                    "Another bottom",
+                                ),
+                            ],
+                            children: [],
+                        },
+                    ],
+                },
+            ],
+        },
+    ),
+)
+Failed Parse:
+Err(
+    "</middle>",
+)
+#+END_SRC
+
+Woohoo, we wrote a parser from scratch using parser combinators!
+We know that a parser forms both a functor and a monad
