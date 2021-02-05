@@ -1,3 +1,531 @@
 * Common Collections
 
-  
+  Collections contain multiple values. Unlike the built-in array and tuple types, the data these collections point to is stored on the heap, which means the amount of data does not need to be known at compile time and can grow or shrink as the problem runs.
+
+- A vector allows you to store a variable number of values next to each other
+- A String is a collection of characters.
+- A hash map allows you to associate a value with a particular key. It's a particular implementation of a more general data structure called a map.
+
+* Storing Lists of Values with Vectors
+
+  Vectors allow you to store more than one value in a single data structure that puts all the values next to each other in memory. Vectors can only store values of the same type.
+
+** Creating a New Vector
+
+#+name:
+#+BEGIN_SRC rust
+fn main() {
+    // create a new empty vector
+    // since we aren't adding values, we need a type annotation
+    let v: Vec<i32> = Vec::new();
+
+    // more commonly, we use the vec! macro
+    let v2 = vec![1, 2, 3];
+
+    // updating a vector
+    // add elements to the vector
+    let mut v3 = Vec::new();
+    for i in 5..9 {
+        v3.push(i);
+        println!("{:?}", v3);
+    }
+}
+#+END_SRC
+
+** Reading Elements of Vectors
+
+   There are two ways to reference a value stored in a vector.
+
+#+name:
+#+BEGIN_SRC rust
+// both methods of accessing a value in a vector
+// either indexing syntax or the get method 
+fn main() {
+    let v = vec![1, 2, 3, 4, 5];
+
+    let third: &i32 = &v[2];
+    println!("The third element is {}", third);
+
+    // the get method has error handling with the None type
+    match v.get(2) {
+        Some(third) => println!("The third element is {}", third),
+        None => println!("There is no third element."),
+    }
+}
+#+END_SRC
+
+When the problem has a valid reference, the borrow checker enforces the ownership and borrowing rules to ensure this reference and any other references to the contents of the vector remain valid. Recall the rule that states you can't have mutable and immutable reference in the same scope.
+
+#+name:
+#+BEGIN_SRC rust
+fn main() {
+    let mut v = vec![1, 2, 3, 4, 5];
+
+    let first = &v[0];
+
+    v.push(6);
+
+    println!("The first element is: {}", first);
+}
+#+END_SRC
+
+The code above looks like it should work -- a ref to a vec element shouldn't care about changes made to the end of the vector. This error is due to how vectors work: adding a new element onto the end of the vector might require allocating new memory and copying the old elements to the new space, if there isn't enough room to put all the elements next to each other where the vector currently is.
+
+** Iterating Over the Values in a Vector
+
+#+name:
+#+BEGIN_SRC rust
+fn main() {
+    let v = vec![100, 32, 57];
+
+    for i in &v {
+        println!("{}", i);
+    }
+}
+#+END_SRC
+
+We can also iterate over mutable references to each element in a mutable vector in order to make changes to all the elements.
+
+#+name:
+#+BEGIN_SRC rust
+fn main() {
+    let mut v = vec![100, 32, 57];
+
+    // be explicit with the mut
+    for i in &mut v {
+	// dereference i before using the add operator
+        *i += 50;
+        println!("{}", i);
+    }
+}
+#+END_SRC
+
+** Using an Enum to Store Multiple Types
+
+   At the beginning of the chapter, we said that vectors can only store values that are the same type.
+   If we need to store a list of items of different types, we can use an enum.
+   The variants of an enum are defined under the same enum type, so when we need to store elements of a different type in a vector, we can define and use an enum
+
+#+name:
+#+BEGIN_SRC rust
+fn main() {
+    // define an enum whose variants will hold the different value types
+    #[derive(Debug)]
+    enum SpreadsheetCell {
+        Int(i32),
+        Float(f64),
+        Text(String),
+    }
+
+    // then we can create a vector that holds that enum, and so ultimately, holds different types
+    let row = vec![
+        SpreadsheetCell::Int(3),
+        SpreadsheetCell::Text(String::from("blue")),
+        SpreadsheetCell::Float(10.12),
+    ];
+
+    for i in &row {
+        println!("{:?}", i);
+    }
+}
+#+END_SRC
+
+** Messing with Vec API
+
+#+name:
+#+BEGIN_SRC rust
+fn main() {
+    // push
+    let mut vec = Vec::new();
+
+    vec.push(1);
+    vec.push(2);
+
+    println!("{}", vec.len());
+    println!("{}", vec[0]);
+
+    // mutate
+    vec[0] = 7;
+
+    // add elements from another vector
+    vec.extend([3, 4, 5].iter().copied());
+
+    // print
+    for x in &vec {
+        println!("{}", x);
+    }
+
+    // vec! macro
+    let mut vec2 = vec![1, 2, 3];
+    vec2.push(4);
+    println!("{:?}", vec2);
+
+    // initialize each element of a Vec<T> with a given value
+    let vec2 = vec![0; 5];
+    println!("{:?}", vec2);
+
+    // stack
+    let mut stack = Vec::new();
+
+    for i in 1..4 {
+        stack.push(i);
+    }
+
+    while let Some(top) = stack.pop() {
+        println!("{}", top);
+    }
+}
+#+END_SRC
+
+* Storing UTF-8 Encoded Text with Strings
+
+  It's useful to see Strings in the context of collections because Strings are implemented as a collection of bytes, plus some methods to provide useful functionality when those bytes are interpreted as text.
+
+  In this section, we'll talk about the operations on String that every collection type has, such as creating, updating, and reading.
+
+** Creating a New String
+
+#+name:
+#+BEGIN_SRC rust
+fn main() {
+    // instantiate a new String
+    let mut s = String::new();
+
+    // we have initial data we want to start with
+    let data = "initial contents";
+    let s = data.to_string();
+
+    println!("data: {}\ts: {}", data, s);
+
+    // alternatively
+    let s = String::from("initial contents");
+
+    // updating a String
+    // a String can grow in size and its contents can change, just like a Vec<T>
+
+    // grow a String
+    let mut s = String::from("foo");
+    s.push_str("bar"); // takes a str slice because we don't necessarily want to take ownership of the parameter
+
+    println!("{}", s);
+
+    // the push method takes a single char and adds it to the String
+    s.push('l'); // make sure its a single quote, otherwise its a str literal and not a char
+    println!("{}", s);
+
+    // concatenation with the + Operator or the format! macro
+    let s1 = String::from("Hello, ");
+    let s2 = String::from("World!");
+    // we can only add a &str to a String, we can't add two String values together.
+    // in the case below, the compiler coerces &s2 from &String to &str[..]
+    let s3 = s1 + &s2; // note that s1 has been moved here and can no longer be used.
+    println!("{}", s3);
+
+    // instead of chaining together + on Strings, we can use the format! macro
+    let s1 = String::from("tic");
+    let s2 = String::from("tac");
+    let s3 = String::from("toe");
+
+    let s = format!("{}-{}-{}", s1, s2, s3);
+    println!("{}", s);
+
+    // if you really need to use indices
+    let hello = "Здравствуйте";
+    let s = &hello[0..4];
+    println!("{}", s);
+}
+#+END_SRC
+
+Rust strings don't support Indexing, due to how they are stored in memory.
+
+A String is a wrapper over a Vec<u8>. It's hard to index it, because it allows UTF-8 encoding and that has a variable length for certain characters. 
+
+Indexing a String is often a bad idea because it's not clear what the return type of the string indexing operation should be: a byte value, a character, a grapheme cluster, or a String slice. 
+
+** Methods for Iterating Over Strings
+
+#+name:
+#+BEGIN_SRC rust
+fn main() {
+    let strang = "नमस्ते";
+
+    // perform ops on individual unicode scalar values
+    for c in strang.chars() {
+        println!("{}", c);
+    }
+
+    // for returning each raw byte
+    for b in strang.bytes() {
+        println!("{}", b);
+    }
+
+    // for graphemes, you need an external crate
+}
+#+END_SRC
+
+* Storing Keys with Associated Values in Hash Maps
+
+  The type HashMap<K, V> stores a mapping of keys of type K to values of type V. Hash maps are useful when you want to look up data not by using an index, but by using a key that can be of any type.
+
+#+name:
+#+BEGIN_SRC rust
+use std::collections::HashMap;
+
+fn main() {
+    let mut scores = HashMap::new();
+
+    scores.insert(String::from("Blue"), 10);
+    scores.insert(String::from("Yellow"), 50);
+    println!("{:#?}", scores);
+}
+#+END_SRC
+
+Hash maps store their data on the heap. This hashmap has keys of type String and values of type i32. Like vectors, hash maps are homogenous: all of the keys must have the same type, all of the values must have the same type.
+
+#+BEGIN_SRC rust
+use std::collections::HashMap;
+
+fn main() {
+    // another way of constructing a hash map
+    let teams = vec![String::from("Blue"), String::from("Yellow")];
+    let initial_scores = vec![10, 50];
+
+    // the type annotation is needed because its possible to collect into many different data structures
+    // and Rust doesn't know which unless you specify
+    let scores: HashMap<_, _> = teams.into_iter().zip(initial_scores.into_iter()).collect();
+    println!("{:#?}", scores);
+}
+#+END_SRC
+
+** Hash Maps and Ownership
+
+   For types that implement the Copy trait, like i32, the values are copied into the hash map.
+   For owned values like String, the values will be moved and the hash map will be the owner of those values.
+
+#+name:
+#+BEGIN_SRC rust
+use std::collections::HashMap;
+
+fn main() {
+    let field_name = String::from("Favorite Color");
+    let field_value = String::from("Blue");
+
+    let mut map = HashMap::new();
+    map.insert(field_name, field_value);
+    // field_name and value are invalid at this point
+    // println!("{}", field_name);
+}
+#+END_SRC
+
+** Accessing Values in a Hash Map
+
+#+name:
+#+BEGIN_SRC rust
+use std::collections::HashMap;
+
+fn main() {
+    let mut scores = HashMap::new();
+
+    scores.insert(String::from("Blue"), 10);
+    scores.insert(String::from("Yellow"), 50);
+
+    let team_name = String::from("Blue");
+    let score = scores.get(&team_name);
+
+    println!("{:?}", &score);
+
+    // iterate
+    for (key, value) in &scores {
+        println!("{}: {}", key, value);
+    }
+}
+#+END_SRC
+
+** Updating a Hash Map
+
+   When you want to change the data in a hash map, you have to decide how to handle the case when a key already has a value assigned.
+   You could replace the old value with the new value, completely disregarding the old value. Or we could keep the old value and ignore the new value, only adding the new value if the key doesn't already have a value. Or we could combine the old value and the new value.
+
+*** Overwriting a Value
+
+#+name:
+#+BEGIN_SRC rust
+use std::collections::HashMap;
+
+fn main() {
+    let mut scores = HashMap::new();
+
+    scores.insert(String::from("Blue"), 10);
+    scores.insert(String::from("Blue"), 25);
+
+    println!("{:?}", scores);
+
+    // only insert a value if the key has no value
+    scores.entry(String::from("Yellow")).or_insert(50);
+    scores.entry(String::from("Blue")).or_insert(50);
+    println!("{:?}", scores);
+
+    // updating a value based on the old value
+    let text = "Hello world wonderful world";
+    let mut map = HashMap::new();
+
+    for word in text.split_whitespace() {
+	// or_insert returns a mutable reference &mut V to the value for this key
+	// we store the mutable ref in the count var
+        let count = map.entry(word).or_insert(0);
+	// in order to assign that value, we first deref count
+        *count += 1;
+    }
+    println!("{:?}", map);
+}
+#+END_SRC
+
+** Summary
+
+*** Given a list of integers, use a vector and return the mean (the average value), median (when sorted, the value in the middle position), and mode (the value that occurs most often; a hash map will be helpful here) of the list.
+
+#+name:
+#+BEGIN_SRC rust
+use std::collections::HashMap;
+
+fn mean(numbers: &[i32]) -> f32 {
+    numbers.iter().sum::<i32>() as f32 / numbers.len() as f32
+}
+
+fn median(numbers: &mut [i32]) -> i32 {
+    numbers.sort();
+    let mid_point = numbers.len() / 2;
+    numbers[mid_point]
+}
+
+fn mode(numbers: &[i32]) -> i32 {
+    let mut counts = HashMap::new();
+
+    let output = numbers.iter().copied().max_by_key(|&n| {
+        let count = counts.entry(n).or_insert(0);
+        *count += 1;
+        *count
+    });
+
+    match output {
+        Some(val) => val,
+        None => 0,
+    }
+}
+
+fn main() {
+    let mut values = vec![1, 2, 3, 11, 22, 33, 1, 2, 3, 111, 222, 333, 1, 2, 1];
+
+    let mean_out = mean(&values);
+    let median_out = median(&mut values);
+    let mode_out = mode(&values);
+
+    println!(
+        "mean:\t\t{:?}\nmedian:\t{:?}\nmode:\t\t{:?}",
+        mean_out, median_out, mode_out
+    );
+}
+#+END_SRC
+
+: mean:		49.866665
+: median:	3
+: mode:		1
+
+I got a version working (poorly). Then I went and copied: [[https://codereview.stackexchange.com/questions/173338/calculate-mean-median-and-mode-in-rust][SO Code Review]]
+
+*** Convert strings to pig latin. The first consonant of each word is moved to the end of the word and “ay” is added, so “first” becomes “irst-fay.” Words that start with a vowel have “hay” added to the end instead (“apple” becomes “apple-hay”). Keep in mind the details about UTF-8 encoding!
+
+#+name: pig-latin
+#+BEGIN_SRC rust
+fn hay(word: &str) -> String {
+    match word.chars().nth(0).unwrap() {
+        'a' | 'e' | 'i' | 'o' | 'u' => format!("{}hay", &word),
+        _ => format!("{}{}ay", &word[1..], &word[..1]),
+    }
+}
+
+fn main() {
+    let text = "an apple always arrives at an artificial allusion";
+    let text2 = "This is a regular old sentence, yessirree bob";
+
+    for wrd in text.split_whitespace() {
+        print!("{} ", hay(wrd));
+    }
+    println!("");
+    for wrd in text2.split_whitespace() {
+        print!("{} ", hay(wrd));
+    }
+}
+#+END_SRC
+
+: anhay applehay alwayshay arriveshay athay anhay artificialhay allusionhay 
+: hisTay ishay ahay egularray oldhay entence,say essirreeyay obbay 
+    
+*** Using a hash map and vectors, create a text interface to allow a user to add employee names to a department in a company. For example, “Add Sally to Engineering” or “Add Amir to Sales.” Then let the user retrieve a list of all people in a department or all people in the company by department, sorted alphabetically.
+
+#+name: lil-db
+#+BEGIN_SRC rust
+// get all people by dept
+fn get_dept_list() {}
+
+// get all people by in company, sorted alphabetically by dept
+fn get_company_list() {}
+
+// parse query
+fn parse_query() {}
+
+// returns a parser that parses up to an input
+fn parse_up_to(value: &'static str) -> impl Fn(&str) -> Result<&str, &str> {
+    // move transfers ownership of an item from a closure
+    move |input| match input.find(value) {
+        // if the input is our expected value, return the Ok
+        Some(next) => Ok(&input[next + value.len()..]),
+        _ => Err(input),
+    }
+}
+
+// not correct, infinite loop? 
+fn parse_alphabetic(input: &str) -> Result<String, &str> {
+    let mut matched = String::new();
+
+    // if there is a letter up front, push it to matched
+    match input.chars().next() {
+        Some(next) if next.is_alphabetic() => matched.push(next),
+        _ => return Err(input),
+    }
+
+    // if the first letter was alphabetic, continue along the string as long as its alphabetic
+    while let Some(next) = input.chars().next() {
+        if next.is_alphabetic() {
+            matched.push(next);
+        } else {
+            break;
+        }
+    }
+
+    // the first time we see something that doesn't match, save our spot and return the str we've built
+    // let next_index = matched.len();
+    Ok(matched)
+}
+
+fn main() {
+    let query1 = "Add Sally to Engineering";
+    let query2 = "Add Amir to Sales";
+
+    // make a parser that gets the name, dept from sentence
+    // get dept
+    let get_dept = parse_up_to("to ");
+    // get name
+    let up_to_ws = parse_up_to(" ");
+
+    println!(
+        "{:?}, {:?}",
+        get_dept(query1).unwrap(),
+        up_to_ws(query1).unwrap()
+    );
+    // add to hashmap as key value pair
+}
+#+END_SRC
+
+#+RESULTS: lil-db
+: cargoIzoUQM
