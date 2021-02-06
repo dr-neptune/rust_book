@@ -1,0 +1,532 @@
+* Crispy
+
+  A lisp calculator language in Rust
+
+  All glory to [[https://stopa.io/post/222][Stephan Parunashvili and Peter Norvig]]
+
+* Language 1: A Calculator Language
+
+  We start by only supporting addition and subtraction.
+
+  The important process we need to remember is the flow of an interpreter:
+
+  our program -> *parse* -> abstract syntax tree -> *eval* -> result
+
+* Type Definitions
+
+#+name: type-defns
+#+BEGIN_SRC rust 
+use std::collections::HashMap;
+// use std::fmt::Display;
+
+// expression type
+#[derive(Clone)]
+enum CrispyExp {
+    Symbol(String),
+    Number(f64),
+    List(Vec<CrispyExp>),
+    // this part added in environments 
+    Func(fn(&[CrispyExp]) -> Result<CrispyExp, CrispyErr>),
+}
+
+// convert our CrispyExp to a string
+// we do this by implementing a Display trait
+impl std::fmt::Display for CrispyExp {
+    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+	let str = match self {
+	    CrispyExp::Symbol(s) => s.clone(),
+	    CrispyExp::Number(n) => n.to_string(),
+	    CrispyExp::List(list) => {
+		let xs: Vec<String> = list
+		    .iter()
+		    .map(|x| x.to_string())
+		    .collect();
+
+		format!("({})", xs.join(","))
+	    },
+	    CrispyExp::Func(_) => "Function {}".to_string(),
+	};
+
+	write!(f, "{}", str)
+    }
+}
+
+// error type
+#[derive(Debug, Clone)]
+enum CrispyErr {
+    // Generic Reason
+    Reason(String)
+}
+
+impl ToString for CrispyErr {
+    fn to_string(&self) -> String {
+        match self {
+	    CrispyErr::Reason(s) => format!("{}", s)
+        }
+    }
+}
+
+// environment type
+#[derive(Clone)]
+struct CrispyEnv {
+    data: HashMap<String, CrispyExp>,
+}
+#+END_SRC
+
+* Parsing
+
+  Our goal is to take the program, and build an abstract syntax tree from it.
+
+  For us, that is going to be a CrispyExp.
+
+#+name: parser
+#+BEGIN_SRC rust :noweb yes
+<<type-defns>>
+use std::num::ParseFloatError;
+
+// cut it up into a bunch of tokens
+fn tokenize(expr: String) -> Vec<String> {
+    expr.replace("(", " ( ")
+        .replace(")", " ) ")
+        .split_whitespace()
+        .map(|x| x.to_string())
+        .collect()
+}
+
+// parse these tokens into a CrispyExpr
+fn parse<'a>(tokens: &'a [String]) -> Result<(CrispyExp, &'a [String]), CrispyErr> {
+    // read a sequence of tokens
+    fn read_seq<'a>(tokens: &'a [String]) -> Result<(CrispyExp, &'a [String]), CrispyErr> {
+	let mut res: Vec<CrispyExp> = vec![];
+	let mut xs = tokens;
+
+	loop {
+	    // move through the token list one at a time
+	    let (next_token, rest) = xs
+		// grab first
+		.split_first()
+		// if fails, this means we have hit the end and it was not handled by the next clause below
+		.ok_or(CrispyErr::Reason("Could not find closing ')'".to_string()))?;
+	    // we have reached the end of the token list, and we need a closing paren
+	    if next_token == ")" {
+		return Ok((CrispyExp::List(res), rest)) // skip ')', head to the tokens after
+	    }
+
+	    // take the token  
+	    let (exp, new_xs) = parse(&xs)?;
+	    // push result to the Vec
+	    res.push(exp);
+	    // continue down the line of the token vector and loop
+	    xs = new_xs;
+	}
+    }
+
+    // if its an atom, we can parse that
+    fn parse_atom(token: &str) -> CrispyExp {
+	let potential_float: Result<f64, ParseFloatError> = token.parse();
+	match potential_float {
+	    Ok(v) => CrispyExp::Number(v),
+	    Err(_) => CrispyExp::Symbol(token.to_string().clone())
+	}
+    }
+    
+    let (token, rest) = tokens.split_first()
+	.ok_or(
+	    CrispyErr::Reason("Could not get token".to_string())
+	)?;
+    match &token[..] {
+	// move ahead
+	"(" => read_seq(rest),
+	")" => Err(CrispyErr::Reason("Unexpected ')'".to_string())),
+	_ => Ok((parse_atom(token), rest)),
+    }
+}
+
+// fn main() {
+//     let simple_expr = "(+ 1 2 3)".to_string();
+//     let not_so_simple_expr = "(+ 1 2 (- 3 4 (+ 5 6 (- 7 8))))".to_string();
+
+//     println!("{:#?}", parse(&tokenize(simple_expr)));
+//     println!("{:#?}", parse(&tokenize(not_so_simple_expr)));
+// }
+#+END_SRC
+
+#+RESULTS: parser
+#+begin_example
+warning: variant is never constructed: `SyntaxErr`
+  --> src/main.rs:20:5
+   |
+20 |     SyntaxErr(u32, u32),
+   |     ^^^^^^^^^^^^^^^^^^^
+   |
+   = note: `#[warn(dead_code)]` on by default
+
+warning: variant is never constructed: `UnbalancedParens`
+  --> src/main.rs:22:5
+   |
+22 |     UnbalancedParens(usize),
+   |     ^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: 2 warnings emitted
+
+warning: variant is never constructed: `SyntaxErr`
+  --> src/main.rs:20:5
+   |
+20 |     SyntaxErr(u32, u32),
+   |     ^^^^^^^^^^^^^^^^^^^
+   |
+   = note: `#[warn(dead_code)]` on by default
+
+warning: variant is never constructed: `UnbalancedParens`
+  --> src/main.rs:22:5
+   |
+22 |     UnbalancedParens(usize),
+   |     ^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: 2 warnings emitted
+
+
+#+end_example
+
+#+name:
+#+BEGIN_SRC rust
+Ok((List([Symbol("+"), Number(1.0), Number(2.0), Number(3.0)]), []))
+Ok((List([Symbol("+"), Number(1.0), Number(2.0), List([Symbol("-"), Number(3.0), Number(4.0), List([Symbol("+"), Number(5.0), Number(6.0), List([Symbol("-"), Number(7.0), Number(8.0)])])])]), []))
+#+END_SRC
+
+Or, in full splayed out form:
+#+name:
+#+BEGIN_SRC rust
+Ok(
+    (
+        List(
+            [
+                Symbol(
+                    "+",
+                ),
+                Number(
+                    1.0,
+                ),
+                Number(
+                    2.0,
+                ),
+                Number(
+                    3.0,
+                ),
+            ],
+        ),
+        [],
+    ),
+)
+    
+Ok(
+    (
+        List(
+            [
+                Symbol(
+                    "+",
+                ),
+                Number(
+                    1.0,
+                ),
+                Number(
+                    2.0,
+                ),
+                List(
+                    [
+                        Symbol(
+                            "-",
+                        ),
+                        Number(
+                            3.0,
+                        ),
+                        Number(
+                            4.0,
+                        ),
+                        List(
+                            [
+                                Symbol(
+                                    "+",
+                                ),
+                                Number(
+                                    5.0,
+                                ),
+                                Number(
+                                    6.0,
+                                ),
+                                List(
+                                    [
+                                        Symbol(
+                                            "-",
+                                        ),
+                                        Number(
+                                            7.0,
+                                        ),
+                                        Number(
+                                            8.0,
+                                        ),
+                                    ],
+                                ),
+                            ],
+                        ),
+                    ],
+                ),
+            ],
+        ),
+        [],
+    ),
+)
+#+END_SRC
+    
+* Environment
+
+  We are going to create a default, global environment to store variable definitions and built in functions.
+
+  To implement built in operations (+, -) we need a way to save Rust function references. We need to update CrispyExp to store Rust function refs:
+
+#+name:
+#+BEGIN_SRC rust
+enum CrispyExp {
+    Symbol(String),
+    Number(f64),
+    List(Vec<CrispyExp>),
+    Func(fn(&[CrispyExp]) -> Result<CrispyExp, CrispyErr>),
+}
+#+END_SRC  
+
+Now we can create a default_env function that returns a CrispyEnv which implements + and -
+
+#+name: env
+#+BEGIN_SRC rust :noweb yes
+<<parser>>
+
+// remember that CrispyEnv is a struct with data: HashMap<String, CrispyExp>,
+fn default_env() -> CrispyEnv {
+    // parses list of floats
+    fn parse_list_of_floats(args: &[CrispyExp]) -> Result<Vec<f64>, CrispyErr> {
+	// parses a single float
+	// could this be inside the list of floats and still work?
+	fn parse_single_float(exp: &CrispyExp) -> Result<f64, CrispyErr> {
+	    match exp {
+		CrispyExp::Number(num) => Ok(*num),
+		_ => Err(CrispyErr::Reason("Expected a number".to_string())),
+	    }
+	}
+	
+	args
+	    .iter()
+	    .map(|x| parse_single_float(x))
+	    .collect()
+    }
+    
+    let mut data: HashMap<String, CrispyExp> = HashMap::new();
+
+    // implement addition
+    data.insert(
+	"+".to_string(),
+	CrispyExp::Func(
+	    |args: &[CrispyExp]| -> Result<CrispyExp, CrispyErr> {
+		let sum = parse_list_of_floats(args)?.iter().fold(0.0, |sum, a| sum + a);
+		Ok(CrispyExp::Number(sum))
+	    }
+	)
+    );
+
+    // implement subtraction
+    data.insert(
+	"-".to_string(),
+	CrispyExp::Func(
+	    |args: &[CrispyExp]| -> Result<CrispyExp, CrispyErr> {
+		let floats = parse_list_of_floats(args)?;
+		let first = *floats.first().ok_or(CrispyErr::Reason("Expected at least one number".to_string()))?;
+		let sum_of_rest = floats[1..].iter().fold(0.0, |sum, a| sum + a);
+
+		Ok(CrispyExp::Number(first - sum_of_rest))
+	    }
+ 	)
+    );
+
+    CrispyEnv {
+	data
+    }
+}
+    
+// fn main() {
+//     let simple_expr = "(+ 1 2 3)".to_string();
+
+//     println!("{:?}", parse(&tokenize(simple_expr)).unwrap());
+// }
+#+END_SRC
+
+#+RESULTS: env
+: error: Could not compile `cargoLp7cbw`.
+
+* Evaluation
+
+  Now we implement *eval*
+
+  If its a symbol, we query for that symbol in the environment and return it.
+  If its a number, we simply return it
+  If its a list, we evaluate the first form. It should be a CrispyExp::Func. Then we call that fn with all the other evaluation forms as the arguments
+  
+#+name: eval
+#+BEGIN_SRC rust :noweb yes
+<<env>>
+
+fn eval(exp: &CrispyExp, env: &mut CrispyEnv) -> Result<CrispyExp, CrispyErr> {
+    match exp {
+	// if symbol
+	CrispyExp::Symbol(k) =>
+	    // look the symbol up in the env
+	    env.data.get(k)
+	    .ok_or(
+		CrispyErr::Reason(
+		    format!("Unexpected symbol:\t{}", k)
+		)
+	    )
+	    // and clone the closure
+	    .map(|k| k.clone()),
+	// if number, clone the expression Number(k)
+	CrispyExp::Number(_k) => Ok(exp.clone()), // we use _ because its 'unused' (since we want to clone the expression, not the number)
+	// if list
+	CrispyExp::List(list) => {
+	    // get the first item. This is another expression
+	    let first_form = list
+		.first()
+		.ok_or(CrispyErr::Reason("Expected a non-empty list".to_string()))?;
+	    // treat the rest of the list as the arguments
+	    let arg_forms = &list[1..];
+	    // take the first argument and pass it back to eval. This is a way to recurse down the list
+	    let first_eval = eval(first_form, env)?;
+	    // pattern match on the final parsed result of the list. Likely a symbol
+	    match first_eval {
+		// if it is a function, look it up, and then evaluate it to get the closure
+		CrispyExp::Func(f) => {
+		    let args_eval = arg_forms
+			.iter()
+			.map(|x| eval(x, env))
+			.collect::<Result<Vec<CrispyExp>, CrispyErr>>();
+		    // take the returned closure and pass the arguments to it
+		    f(&args_eval?)
+		},
+		_ => Err(
+		    CrispyErr::Reason("First form must be a function".to_string())
+		),
+	    }
+	},
+	CrispyExp::Func(_) => Err(
+	    CrispyErr::Reason("Unexpected form".to_string())
+	),
+    }
+}
+    
+// fn main() {
+//     let simple_expr = "(+ 1 2 3)".to_string();
+
+//     // just returns [] for now, since the first token is a CrispyExp List
+//     // println!("{:?}", parse(&tokenize(simple_expr)).unwrap().1);
+// }
+#+END_SRC
+
+* REPL
+
+  This makes the language interactive.
+
+We first need a way to convert our CrispyExp to a string. We can implement the Display trait
+
+#+name:
+#+BEGIN_SRC rust
+// convert our CrispyExp to a string
+// we do this by implementing a Display trait
+impl std::fmt::Display for CrispyExp {
+    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+	let str = match self {
+	    CrispyExp::Symbol(s) => s.clone(),
+	    CrispyExp::Number(n) => n.to_string(),
+	    CrispyExp::List(list) => {
+		let xs: Vec<String> = list
+		    .iter()
+		    .map(|x| x.to_string())
+		    .collect();
+
+		format!("({})", xs.join(","))
+	    },
+	    CrispyExp::Func(_) => "Function {}".to_string(),
+	};
+
+	write!(f, "{}", str)
+    }
+}
+#+END_SRC
+
+This was added to our type-defns above
+
+#+name: repl
+#+BEGIN_SRC rust :noweb yes :tangle crispy/src/main.rs 
+<<eval>>
+
+// tie the interpreter process into a loop
+// parse and eval what is typed into the repl
+fn parse_eval(expr: String, env: &mut CrispyEnv) -> Result<CrispyExp, CrispyErr> {
+    let (parsed_exp, _) = parse(&tokenize(expr))?;
+    let evaled_exp = eval(&parsed_exp, env)?;
+
+    Ok(evaled_exp)
+}
+
+// grab the expression typed into the repl through stdin
+fn slurp_expr() -> String {
+    let mut expr = String::new();
+
+    std::io::stdin().read_line(&mut expr)
+	.expect("Failed to read line");
+    expr
+}
+
+fn main() {
+    // declare our environment!
+    let env = &mut default_env();
+    // make it loop
+    loop {
+	// show prompt!
+	println!("crispy >");
+	// get the expression!
+	let expr = slurp_expr();
+	// match expressions, parse and eval em!
+	match parse_eval(expr, env) {
+	    Ok(res) => println!("// ☯ => {}", res),
+	    Err(e) => match e {
+		CrispyErr::Reason(msg) => println!("// ⚙ => {}", msg),
+	    },
+	}
+    }
+}
+#+END_SRC
+
+How exciting!
+
+#+name:
+#+BEGIN_SRC emacs-lisp  
+crispy >
+(+ 1 1 1)
+// ☯ => 3
+crispy >
+(+ 1 2 3 4 5 (- 6 7 8 9 10))
+// ☯ => -13
+crispy >
+(+ 1 (- 2 (+ 3 (- 4 (+ 5 (- 6 (+ 7 (- 8 (+ 9 (- 10) 11) 12) 13) 14) 15) 16) 17) 18) 19)
+// ☯ => 22
+crispy >
+#+END_SRC
+
+# #+name: 
+# #+BEGIN_SRC rust :noweb yes
+# <<eval>>
+
+# fn main() {
+#     let simple_expr = "(+ 1 2 3)".to_string();
+
+#     println!("{:?}", parse(&tokenize(simple_expr)));
+# }
+# #+END_SRC
+
