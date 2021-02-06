@@ -523,7 +523,7 @@ fn get_dept_list<'a>(
     db: &'a HashMap<String, String>,
 ) -> Vec<(&'a String, &'a String)> {
     let mut to_print = Vec::new();
-
+ 
     for (key, value) in db {
         if value.starts_with(dept) {
             to_print.push((key, value))
@@ -658,3 +658,4 @@ Dept:	Sales
 
 Name:	No
 Dept:	Sales
+
