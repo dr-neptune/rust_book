@@ -456,7 +456,7 @@ fn main() {
         print!("{} ", hay(wrd));
     }
 }
-#+END_SRC
+#+END_SRC     
 
 : anhay applehay alwayshay arriveshay athay anhay artificialhay allusionhay 
 : hisTay ishay ahay egularray oldhay entence,say essirreeyay obbay 
@@ -465,15 +465,9 @@ fn main() {
 
 #+name: lil-db
 #+BEGIN_SRC rust
-// get all people by dept
-fn get_dept_list() {}
+use std::collections::HashMap;
 
-// get all people by in company, sorted alphabetically by dept
-fn get_company_list() {}
-
-// parse query
-fn parse_query() {}
-
+// PARSING
 // returns a parser that parses up to an input
 fn parse_up_to(value: &'static str) -> impl Fn(&str) -> Result<&str, &str> {
     // move transfers ownership of an item from a closure
@@ -484,18 +478,18 @@ fn parse_up_to(value: &'static str) -> impl Fn(&str) -> Result<&str, &str> {
     }
 }
 
-// not correct, infinite loop? 
 fn parse_alphabetic(input: &str) -> Result<String, &str> {
     let mut matched = String::new();
+    let mut chars = input.chars();
 
     // if there is a letter up front, push it to matched
-    match input.chars().next() {
+    match chars.next() {
         Some(next) if next.is_alphabetic() => matched.push(next),
         _ => return Err(input),
     }
 
     // if the first letter was alphabetic, continue along the string as long as its alphabetic
-    while let Some(next) = input.chars().next() {
+    while let Some(next) = chars.next() {
         if next.is_alphabetic() {
             matched.push(next);
         } else {
@@ -504,28 +498,163 @@ fn parse_alphabetic(input: &str) -> Result<String, &str> {
     }
 
     // the first time we see something that doesn't match, save our spot and return the str we've built
-    // let next_index = matched.len();
     Ok(matched)
 }
 
-fn main() {
-    let query1 = "Add Sally to Engineering";
-    let query2 = "Add Amir to Sales";
+fn get_dept(input: &str) -> String {
+    parse_up_to("to ")(input).unwrap().to_string()
+}
 
-    // make a parser that gets the name, dept from sentence
-    // get dept
-    let get_dept = parse_up_to("to ");
-    // get name
+fn get_name(input: &str) -> String {
     let up_to_ws = parse_up_to(" ");
 
-    println!(
-        "{:?}, {:?}",
-        get_dept(query1).unwrap(),
-        up_to_ws(query1).unwrap()
-    );
-    // add to hashmap as key value pair
+    parse_alphabetic(up_to_ws(input).unwrap()).unwrap()
+}
+
+// parse query
+fn parse_query(input: &str) -> (String, String) {
+    (get_name(input), get_dept(input))
+}
+
+// RETRIEVING
+// get all people by dept
+fn get_dept_list<'a>(
+    dept: &'a str,
+    db: &'a HashMap<String, String>,
+) -> Vec<(&'a String, &'a String)> {
+    let mut to_print = Vec::new();
+
+    for (key, value) in db {
+        if value.starts_with(dept) {
+            to_print.push((key, value))
+        } else {
+        }
+    }
+
+    to_print.sort_by_key(|a| a.0);
+    println!("Department:\t{}\n--------------------------------\n", dept);
+    // println!("{:#?}", to_print);
+    to_print
+}
+
+// get all people by in company, sorted alphabetically by dept
+fn get_company_list(db: &HashMap<String, String>) {
+    let mut depts = Vec::new();
+
+    // get unique values for depts in lildb
+    for value in db.values() {
+        depts.push(value);
+    }
+    // sort depts
+    depts.sort();
+    // remove duplicate dept entries
+    depts.dedup();
+
+    // iterate get_dept_list over them
+    for dept in depts {
+        pretty_print_tuple_vec(get_dept_list(dept, &db));
+    }
+}
+
+fn pretty_print_tuple_vec(vlist: Vec<(&String, &String)>) {
+    for item in vlist {
+        println!("Name:\t{}\nDept:\t{}\n", item.0, item.1);
+    }
+}
+
+fn main() {
+    let mut lildb = HashMap::new();
+
+    let queries = vec![
+        "Add Tally to Engineering",
+        "Add Flubber to Marketing",
+        "Add Blubber to Marketing",
+        "Add Rally to Engineering",
+        "Add Sally to Engineering",
+        "Add Amir to Sales",
+        "Add Int to Product",
+        "Add Yes to Engineering",
+        "Add No to Sales",
+        "Add Maybe to Sales",
+        "Add Gordan to Sales",
+        "Add Gecko to Product",
+        "Add Hmm to Marketing",
+    ];
+
+    // Add queries to our HashMap DB
+    for q in queries {
+        let parsed = parse_query(q);
+        lildb.insert(parsed.0, parsed.1);
+    }
+    // print just engineering dept
+    pretty_print_tuple_vec(get_dept_list("Engineering", &lildb));
+    // print company list by dept
+    get_company_list(&lildb);
 }
 #+END_SRC
 
-#+RESULTS: lil-db
-: cargoIzoUQM
+Department:	Engineering
+--------------------------------
+
+Name:	Rally
+Dept:	Engineering
+
+Name:	Sally
+Dept:	Engineering
+
+Name:	Tally
+Dept:	Engineering
+
+Name:	Yes
+Dept:	Engineering
+
+Department:	Engineering
+--------------------------------
+
+Name:	Rally
+Dept:	Engineering
+
+Name:	Sally
+Dept:	Engineering
+
+Name:	Tally
+Dept:	Engineering
+
+Name:	Yes
+Dept:	Engineering
+
+Department:	Marketing
+--------------------------------
+
+Name:	Blubber
+Dept:	Marketing
+
+Name:	Flubber
+Dept:	Marketing
+
+Name:	Hmm
+Dept:	Marketing
+
+Department:	Product
+--------------------------------
+
+Name:	Gecko
+Dept:	Product
+
+Name:	Int
+Dept:	Product
+
+Department:	Sales
+--------------------------------
+
+Name:	Amir
+Dept:	Sales
+
+Name:	Gordan
+Dept:	Sales
+
+Name:	Maybe
+Dept:	Sales
+
+Name:	No
+Dept:	Sales
