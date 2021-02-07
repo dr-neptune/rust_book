@@ -15,18 +15,26 @@
 * Type Definitions
 
 #+name: type-defns
-#+BEGIN_SRC rust 
+#+BEGIN_SRC rust :noweb yes
+<<ensure-tonicity>>
+    <<if-def>>
+    <<env-get>>
+    <<lambda-forms>>
 use std::collections::HashMap;
 // use std::fmt::Display;
 
 // expression type
 #[derive(Clone)]
 enum CrispyExp {
+    // this part added in calculator++
+    Bool(bool),
     Symbol(String),
     Number(f64),
     List(Vec<CrispyExp>),
-    // this part added in environments 
+    // this part added in environments
     Func(fn(&[CrispyExp]) -> Result<CrispyExp, CrispyErr>),
+    // this part added in Full Crispy
+    Lambda(CrispyLambda)
 }
 
 // convert our CrispyExp to a string
@@ -45,6 +53,10 @@ impl std::fmt::Display for CrispyExp {
 		format!("({})", xs.join(","))
 	    },
 	    CrispyExp::Func(_) => "Function {}".to_string(),
+	    // added in calculator++
+	    CrispyExp::Bool(a) => a.to_string(),
+	    // added in full crispy
+	    CrispyExp::Lambda(_) => "Lambda {}".to_string(),
 	};
 
 	write!(f, "{}", str)
@@ -68,9 +80,20 @@ impl ToString for CrispyErr {
 
 // environment type
 #[derive(Clone)]
-struct CrispyEnv {
+struct CrispyEnv<'a> {
     data: HashMap<String, CrispyExp>,
+    // added in full crispy
+    outer: Option<&'a CrispyEnv<'a>>,
 }
+
+// lambda struct
+// this part added in full crispy
+#[derive(Clone)]
+struct CrispyLambda {
+    params_exp: std::rc::Rc<CrispyExp>,
+    body_exp: std::rc::Rc<CrispyExp>,
+}
+
 #+END_SRC
 
 * Parsing
@@ -122,11 +145,26 @@ fn parse<'a>(tokens: &'a [String]) -> Result<(CrispyExp, &'a [String]), CrispyEr
     }
 
     // if its an atom, we can parse that
+    // fn parse_atom(token: &str) -> CrispyExp {
+    // 	let potential_float: Result<f64, ParseFloatError> = token.parse();
+    // 	match potential_float {
+    // 	    Ok(v) => CrispyExp::Number(v),
+    // 	    Err(_) => CrispyExp::Symbol(token.to_string().clone())
+    // 	}
+    // }
+
+    // updated in calculator++
     fn parse_atom(token: &str) -> CrispyExp {
-	let potential_float: Result<f64, ParseFloatError> = token.parse();
-	match potential_float {
-	    Ok(v) => CrispyExp::Number(v),
-	    Err(_) => CrispyExp::Symbol(token.to_string().clone())
+	match token.as_ref() {
+	    "true" => CrispyExp::Bool(true),
+	    "false" => CrispyExp::Bool(false),
+	    _ => {
+		let potential_float: Result<f64, ParseFloatError> = token.parse();
+		match potential_float {
+		    Ok(v) => CrispyExp::Number(v),
+		    Err(_) => CrispyExp::Symbol(token.to_string().clone())
+		}
+	    }
 	}
     }
     
@@ -301,7 +339,7 @@ Now we can create a default_env function that returns a CrispyEnv which implemen
 <<parser>>
 
 // remember that CrispyEnv is a struct with data: HashMap<String, CrispyExp>,
-fn default_env() -> CrispyEnv {
+fn default_env<'a>() -> CrispyEnv<'a> {
     // parses list of floats
     fn parse_list_of_floats(args: &[CrispyExp]) -> Result<Vec<f64>, CrispyErr> {
 	// parses a single float
@@ -345,10 +383,30 @@ fn default_env() -> CrispyEnv {
 	    }
  	)
     );
+    
+    // added in comparison operators
+    data.insert(
+	"=".to_string(),
+	CrispyExp::Func(ensure_tonicity!(|a, b| a == b))
+    );
+    data.insert(
+	">".to_string(),
+	CrispyExp::Func(ensure_tonicity!(|a, b| a > b))
+    );
+    data.insert(
+	">=".to_string(),
+	CrispyExp::Func(ensure_tonicity!(|a, b| a >= b))
+    );
+    data.insert(
+	"<".to_string(),
+	CrispyExp::Func(ensure_tonicity!(|a, b| a < b))
+    );
+    data.insert(
+	"<=".to_string(),
+	CrispyExp::Func(ensure_tonicity!(|a, b| a <= b))
+    );
 
-    CrispyEnv {
-	data
-    }
+    CrispyEnv {data, outer: None}
 }
     
 // fn main() {
@@ -376,17 +434,15 @@ fn default_env() -> CrispyEnv {
 fn eval(exp: &CrispyExp, env: &mut CrispyEnv) -> Result<CrispyExp, CrispyErr> {
     match exp {
 	// if symbol
-	CrispyExp::Symbol(k) =>
-	    // look the symbol up in the env
-	    env.data.get(k)
+	// get the environment for the symbol
+	// added in full crispy
+	CrispyExp::Symbol(k) => env_get(k, env)
 	    .ok_or(
+		// if not, then say unexpected symbol
 		CrispyErr::Reason(
-		    format!("Unexpected symbol:\t{}", k)
+		    format!("Unexpected symbol k = '{}'", k)
 		)
-	    )
-	    // and clone the closure
-	    .map(|k| k.clone()),
-	// if number, clone the expression Number(k)
+	    ),
 	CrispyExp::Number(_k) => Ok(exp.clone()), // we use _ because its 'unused' (since we want to clone the expression, not the number)
 	// if list
 	CrispyExp::List(list) => {
@@ -396,27 +452,39 @@ fn eval(exp: &CrispyExp, env: &mut CrispyEnv) -> Result<CrispyExp, CrispyErr> {
 		.ok_or(CrispyErr::Reason("Expected a non-empty list".to_string()))?;
 	    // treat the rest of the list as the arguments
 	    let arg_forms = &list[1..];
-	    // take the first argument and pass it back to eval. This is a way to recurse down the list
-	    let first_eval = eval(first_form, env)?;
-	    // pattern match on the final parsed result of the list. Likely a symbol
-	    match first_eval {
-		// if it is a function, look it up, and then evaluate it to get the closure
-		CrispyExp::Func(f) => {
-		    let args_eval = arg_forms
-			.iter()
-			.map(|x| eval(x, env))
-			.collect::<Result<Vec<CrispyExp>, CrispyErr>>();
-		    // take the returned closure and pass the arguments to it
-		    f(&args_eval?)
-		},
-		_ => Err(
-		    CrispyErr::Reason("First form must be a function".to_string())
-		),
+	    // pattern match the first form to deal with built ins
+	    match eval_built_in_form(first_form, arg_forms, env) {
+		// if found, return the exp
+		Some(res) => res,
+		// else create it and evaluate it
+		None => {
+		    // updated in full crispy to support lambdas as a first arg in a list 
+		    let first_eval = eval(first_form, env)?;
+		    match first_eval {
+			CrispyExp::Func(f) => {
+			    // if a function, do that
+			    f(&eval_forms(arg_forms, env)?)
+			},
+			// if a lambda
+			CrispyExp::Lambda(lambda) => {
+			    // build a new environment for the lambda, passing its params and args and the current env (the current will be an outer env)
+			    let new_env = &mut env_for_lambda(lambda.params_exp, arg_forms, env)?;
+			    // evaluate the body of the lambda in its own env
+			    eval(&lambda.body_exp, new_env)
+			},
+			_ => Err(
+			    CrispyErr::Reason("First form must be a function".to_string())
+			),
+		    }
+		}
 	    }
 	},
 	CrispyExp::Func(_) => Err(
 	    CrispyErr::Reason("Unexpected form".to_string())
 	),
+	// added in calculator++
+	CrispyExp::Bool(_a) => Ok(exp.clone()),
+	CrispyExp::Lambda(_) => Err(CrispyErr::Reason("Unexpected form".to_string())),
     }
 }
     
@@ -519,14 +587,583 @@ crispy >
 crispy >
 #+END_SRC
 
-# #+name: 
-# #+BEGIN_SRC rust :noweb yes
-# <<eval>>
+* Calculator++
 
-# fn main() {
-#     let simple_expr = "(+ 1 2 3)".to_string();
+  Now we will add support for booleans and equality operators
 
-#     println!("{:?}", parse(&tokenize(simple_expr)));
-# }
-# #+END_SRC
+  To implement bool, we include it in our CrispyExp
 
+#+name:
+#+BEGIN_SRC rust
+enum CrispyExp {
+    Bool(bool),
+    Symbol(String),
+    Number(f64),
+    List(Vec<CrispyExp>),
+    Func(fn(&[CrispyExp]) -> Result<CrispyExp, CrispyErr>),
+}
+#+END_SRC  
+
+We also need to update display
+
+#+name:
+#+BEGIN_SRC rust
+impl std::fmt::Display for CrispyExp {
+    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+	let str = match self {
+	    CrispyExp::Bool(a) => a.to_string(),
+	}
+    }
+}
+#+END_SRC
+
+Then we update eval to consider bools
+
+#+name:
+#+BEGIN_SRC rust
+fn eval(exp: &CrispyExp, env: &mut CrispyEnv) -> Result<CrispyExp, CrispyErr> {
+    match exp {
+	// ...
+	CrispyExp::Bool(_a) => Ok(exp.clone()),
+    }
+}
+#+END_SRC
+
+We should also update our parse_atom function to consider bools
+
+#+name:
+#+BEGIN_SRC rust
+fn parse_atom(token: &str) -> CrispyExp {
+    match token.as_ref() {
+	"true" => CrispyExp::Bool(true),
+	"false" => CrispyExp::Bool(false),
+	_ => {
+	    let potential_float: Result<f64, ParseFloatError> = token.parse();
+	    match potential_float {
+		Ok(v) => CrispyExp::Number(v),
+		Err(_) => CrispyExp::Symbol(token.to_string().clone())
+	    }
+	}
+    }
+}
+#+END_SRC
+
+* Comparison Operators
+
+  With the changes above, we should have what we need to implement bools. To see them in action, we need to implement =, >, <, >=, <=
+
+  In lisp, these operators are special. They can take more than 2 args, and return true if they are in monotonic order that satisfies the operator.
+  For example, (> 6 5 3 2) is true because 6 > 5 > 3 > 2.
+
+  We need to add our new operators to the default environment
+  
+#+name:
+#+BEGIN_SRC rust
+fn default_env() -> CrispyEnv {
+    let mut data: HashMap<String, CrispyExp> = HashMap::new();
+    // ...
+    data.insert(
+	"=".to_string(),
+	CrispyExp::Func(ensure_tonicity!(|a, b| a == b))
+    );
+    data.insert(
+	">".to_string(),
+	CrispyExp::Func(ensure_tonicity!(|a, b| a > b))
+    );
+    data.insert(
+	">=".to_string(),
+	CrispyExp::Func(ensure_tonicity!(|a, b| a >= b))
+    );
+    data.insert(
+	"<".to_string(),
+	CrispyExp::Func(ensure_tonicity!(|a, b| a < b))
+    );
+    data.insert(
+	"<=".to_string(),
+	CrispyExp::Func(ensure_tonicity!(|a, b| a <= b))
+    );
+
+    CrispyEnv{data}
+}
+#+END_SRC
+
+The key here is a helper macro, ensure_tonicity. This takes a checker function, and ensures that the conditional passes in a monotonic way
+
+#+name: ensure-tonicity
+#+BEGIN_SRC rust
+macro_rules! ensure_tonicity {
+    ($check_fn:expr) => {{
+	|args: &[CrispyExp]| -> Result<CrispyExp, CrispyErr> {
+	    let floats = parse_list_of_floats(args)?;
+	    let first = floats.first().ok_or(CrispyErr::Reason("Expected at least one number".to_string()))?;
+	    let rest = &floats[1..];
+	    fn f (prev: &f64, xs: &[f64]) -> bool {
+		match xs.first() {
+		    Some(x) => $check_fn(prev, x) && f(x, &xs[1..]),
+		    None => true,
+		}
+	    }
+	    Ok(CrispyExp::Bool(f(first, rest)))
+	}
+    }}
+}
+#+END_SRC
+
+* Almost Crispy
+
+  Now we make this a language with definitions and if
+
+  First we update eval to deal with built in operators
+  
+#+name:
+#+BEGIN_SRC rust
+fn eval(exp: &CrispyExp, env: &mut CrispyEnv) -> Result<CrispyExp, CrispyErr> {
+    match exp {
+	// ...
+	CrispyExp::List(list) => {
+	    let first_form = list
+		.first()
+		.ok_or(CrispyErr::Reason("Expected a non-empty list".to_string()))?;
+	    let arg_forms = &list[1..];
+	    match eval_built_in_form(first_form, arg_forms, env) {
+		Some(res) => res,
+		None => {
+		    let first_eval = eval(first_form, env)?;
+		    match first_eval {
+			CrispyExp::Func(f) => {
+			    let args_eval = arg_forms
+				.iter()
+				.map(|x| eval(x, env))
+				.collect::<Result<Vec<CrispyExp>, CrispyErr>>();
+			    return f(&args_eval?);
+			},
+			_ => Err(
+			    CrispyErr::Reason("First form must be a function".to_string())
+			),
+		    }
+		}
+	    }
+	}
+    }
+}
+#+END_SRC
+
+We need eval_built_in_form to deal with our new constructs
+
+#+name: if-def
+#+BEGIN_SRC rust
+// evaluate a form built into the language, like def and if 
+fn eval_built_in_form(exp: &CrispyExp, arg_forms: &[CrispyExp], env: &mut CrispyEnv) -> Option<Result<CrispyExp, CrispyErr>> {
+    match exp {
+	// match the symbol to the form
+	CrispyExp::Symbol(s) => match s.as_ref() {
+	    "if" => Some(eval_if_args(arg_forms, env)),
+	    "df" => Some(eval_def_args(arg_forms, env)),
+	    "fn" => Some(eval_lambda_args(arg_forms)),
+	    _ => None,
+	},
+	_ => None,
+    }
+}
+
+// implement if
+fn eval_if_args(arg_forms: &[CrispyExp], env: &mut CrispyEnv) -> Result<CrispyExp, CrispyErr> {
+    // get first arg_form
+    let test_form = arg_forms.first().ok_or(
+	CrispyErr::Reason(
+	    "Expected test form".to_string(),
+	)
+    )?;
+    // test if it can be evaluated
+    let test_eval = eval(test_form, env)?;
+    // if a closure is returned (in this case a comparator)
+    match test_eval {
+	// if bool
+	CrispyExp::Bool(b) => {
+	    // evaluate if with rust if else
+	    let form_idx = if b { 1 } else { 2 };
+	    // get the form
+	    let res_form = arg_forms.get(form_idx)
+		.ok_or(CrispyErr::Reason(
+		    format!("Expected form idx={}", form_idx)
+		))?;
+	    // evaluate it and return
+	    let res_eval = eval(res_form, env);
+	    res_eval
+	},
+	_ => Err(
+	    CrispyErr::Reason(format!("Unexpected test form='{}'", test_form.to_string()))
+	)
+    }
+}
+
+// implement def
+fn eval_def_args(arg_forms: &[CrispyExp], env: &mut CrispyEnv) -> Result<CrispyExp, CrispyErr> {
+    let first_form = arg_forms.first().ok_or(
+	CrispyErr::Reason("Expected first form".to_string(),)
+    )?;
+    let first_str = match first_form {
+	CrispyExp::Symbol(s) => Ok(s.clone()),
+	_ => Err(CrispyErr::Reason("Expected first form to be a symbol".to_string(),))
+    }?;
+    let second_form = arg_forms.get(1).ok_or(
+	CrispyErr::Reason("Expected second form".to_string()),
+    )?;
+    if arg_forms.len() > 2 {
+	return Err(
+	    CrispyErr::Reason("df can only have two forms".to_string(),)
+	)
+    }
+    // evaluate the body
+    let second_eval = eval(second_form, env)?;
+    // place the resulting closure into the environment with the first_str as its name
+    env.data.insert(first_str, second_eval);
+    Ok(first_form.clone())
+}
+
+// added in full crispy
+// lambda form
+fn eval_lambda_args(arg_forms: &[CrispyExp]) -> Result<CrispyExp, CrispyErr> {
+    let params_exp = arg_forms.first().ok_or(
+	CrispyErr::Reason("Expected args form".to_string(),)
+    )?;
+    let body_exp = arg_forms.get(1).ok_or(
+	CrispyErr::Reason("Expected second form".to_string(),)
+    )?;
+    if arg_forms.len() > 2 {
+	return Err(
+	    CrispyErr::Reason("fn definition can only have 2 forms".to_string(),)
+	)
+    }
+
+    Ok(
+	CrispyExp::Lambda(
+	    CrispyLambda {
+		body_exp: std::rc::Rc::new(body_exp.clone()),
+		params_exp: std::rc::Rc::new(params_exp.clone()),
+	    }
+	)
+    )
+}
+
+#+END_SRC
+
+Now we have built in functions!
+
+#+BEGIN_SRC emacs-lisp
+crispy >
+(> 1 2 3)
+// ☯ => false
+crispy >
+(df a 1)
+// ☯ => a
+crispy >
+(df b 2)
+// ☯ => b
+crispy >
+(+ a b)
+// ☯ => 3
+crispy >
+(+ 1 2 3 4 5 a a a a b b b b)
+// ☯ => 27
+crispy >
+(if (< 2 4 6) 1 2)
+// ☯ => 1
+crispy >
+(if (> 2 4 6) 1 2)
+// ☯ => 2
+crispy >
+#+END_SRC
+
+* Full Crispy
+
+  To make this a full on language, we need to implement lambdas!
+  Our syntax will look like this:
+
+#+name:
+#+BEGIN_SRC emacs-lisp
+(df add-one (fn (a) (+ 1 a)))
+(add-one 1) // => 2
+#+END_SRC
+
+* Create the Lambda expression
+
+#+name:
+#+BEGIN_SRC rust
+// introduce a lambda type for our CrispyExp
+enum CrispyExp {
+    Bool(bool),
+    Symbol(String),
+    Number(f64),
+    List(Vec<CrispyExp>),
+    Func(fn(&[CrispyExp]) -> Result<CrispyExp, CrispyErr>),
+    Lambda(CrispyLambda)
+}
+
+struct CrispyLambda {
+    params_exp: std::rc::Rc<CrispyExp>,
+    body_exp: std::rc::Rc<CrispyExp>,
+}
+
+// update display
+impl std::fmt::Display for CrispyExp {
+    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+	let str = match self {
+	    // ...
+	    CrispyExp::Lambda(_) => "Lambda {}".to_string(),
+	}
+    }
+}
+
+// update eval
+fn eval(exp: &CrispyExp, env: &mut CrispyEnv) -> Result<CrispyExp, CrispyErr> {
+    match exp {
+	// ...
+	CrispyExp::Lambda(_) => "Lambda {}".to_string(),
+    }
+}
+
+// update eval_built_in_form
+fn eval_built_in_form(
+    exp: &CrispyExp, arg_forms: &[CrispyExp], env: &mut CrispyEnv
+    // ...
+	"fn" => Some(eval_lambda_args(arg_forms)),
+)
+#+END_SRC
+
+Then eval_lambda_args can look like this:
+
+#+name:
+#+BEGIN_SRC rust
+fn eval_lambda_args(arg_forms: &[CrispyExp]) -> Result<CrispyExp, CrispyErr> {
+    let params_exp = arg_forms.first().ok_or(
+	CrispyErr::Reason("Expected args form".to_string(),)
+    )?;
+    let body_exp = arg_forms.get(1).ok_or(
+	CrispyErr::Reason("Expected second form".to_string(),)
+    )?;
+    if arg_forms.len() > 2 {
+	return Err(
+	    CrispyErr::Reason("fn definition can only have 2 forms".to_string(),)
+	)
+    }
+
+    Ok(
+	CrispyExp::Lambda(
+	    CrispyLambda {
+		body_exp: std::rc::Rc::new(body_exp.clone()),
+		params_exp: std::rc::Rc::new(params_exp.clone()),
+	    }
+	)
+    )
+}
+#+END_SRC
+
+As of now, we only have a global environment. With lambdas, we need to introduce the concept of scoped environments. Whenever we call a lambda, we need to instantiate a new environment.
+
+First we update our CrispyEnv struct to keep an outer reference
+
+#+name:
+#+BEGIN_SRC rust
+struct CrispyEnv<'a> {
+    data: HashMap<String, CrispyExp>,
+    outer: Option<&'a CrispyEnv<'a>>,
+}
+#+END_SRC
+
+We should also update default_env to specify the lifetime and return None as the outer environment
+
+#+name:
+#+BEGIN_SRC rust
+fn default_env<'a>() -> CrispyEnv<'a> {
+    // ...
+    CrispyEnv {data, outer: None}
+}
+#+END_SRC
+
+Now we should update eval to recursively search for symbols in our environment
+
+#+name: env-get
+#+BEGIN_SRC rust
+// get the right environment recursively
+fn env_get(k: &str, env: &CrispyEnv) -> Option<CrispyExp> {
+    match env.data.get(k) {
+	// if exp is found in env, clone the expression for the evaluator
+	Some(exp) => Some(exp.clone()),
+	// otherwise, check the outer environment 
+	None => {
+	    // if an outer env is found
+	    match &env.outer {
+		// recursively check if the symbol exists in it
+		Some(outer_env) => env_get(k, &outer_env),
+		// otherwise return None, since nothing was found!
+		None => None
+	    }
+	}
+    }
+}
+#+END_SRC
+
+Then we can update eval to use this fn
+
+#+name:
+#+BEGIN_SRC rust
+// what we will updat
+fn eval(exp: &CrispyExp, env: &mut CrispyEnv) -> Result<CrispyExp, CrispyErr> {
+    match exp {
+	// get the environment for the symbol
+	CrispyExp::Symbol(k) => env_get(k, env)
+	    .ok_or(
+		// if not, then say unexpected symbol
+		CrispyErr::Reason(
+		    format!("Unexpected symbol k = '{}'", k)
+		)
+	    ),
+    }
+}
+#+END_SRC
+
+Now we can support calling lambdas
+
+We need to update eval so that we know what to do when the first form in a list is a lambda:
+
+#+name:
+#+BEGIN_SRC rust
+fn eval(exp: &CrispyExp, env: &mut CrispyEnv) -> Result<CrispyExp, CrispyErr> {
+    // ...
+    let first_eval = eval(first_form, env)?;
+    match first_eval {
+	CrispyExp::Func(f) => {
+	    f(&eval_forms(arg_forms, env)?)
+	},
+	CrispyExp::Lambda(lambda) => {
+	    let new_env = &mut env_for_lambda(lambda.params_exp, arg_forms, env)?;
+	    eval(&lambda.body_exp, new_env)
+	},
+	_ => Err(
+	    CrispyErr::Reason("First form must be a function".to_string())
+	),
+    }
+}
+#+END_SRC
+
+#+name: lambda-forms
+#+BEGIN_SRC rust
+// helper fn to eval a list of expressions (used for body Func and Lambda)
+fn eval_forms(arg_forms: &[CrispyExp], env: &mut CrispyEnv) -> Result<Vec<CrispyExp>, CrispyErr> {
+    arg_forms
+	.iter()
+	.map(|x| eval(x, env))
+	.collect()
+}
+
+// gets the params_exp, creates an env where each param corresponds to an arg at that index
+fn env_for_lambda<'a>(params: std::rc::Rc<CrispyExp>, arg_forms: &[CrispyExp], outer_env: &'a mut CrispyEnv) -> Result<CrispyEnv<'a>, CrispyErr> {
+    // parse all of the expressions to make sure they are Symbols
+    let ks = parse_list_of_symbol_strings(params)?;
+    // if there are more Symbols than param expressions, throw an error
+    if ks.len() != arg_forms.len() {
+	return Err(
+	    CrispyErr::Reason(
+		format!("Expected {} arguments, got {}", ks.len(), arg_forms.len())
+	    )
+	);
+    }
+    // otherwise, evaluate the forms
+    let vs = eval_forms(arg_forms, outer_env)?;
+    // create a new environment
+    let mut data: HashMap<String, CrispyExp> = HashMap::new();
+    // insert our definitions into the new environment
+    for (k, v) in ks.iter().zip(vs.iter()) {
+	data.insert(k.clone(), v.clone());
+    }
+    // and return said environment
+    Ok(
+	CrispyEnv {
+	    data,
+	    outer: Some(outer_env),
+	}
+    )
+}
+
+// make sure all of our param definitions are symbols
+fn parse_list_of_symbol_strings(form: std::rc::Rc<CrispyExp>) -> Result<Vec<String>, CrispyErr> {
+    let list = match form.as_ref() {
+	CrispyExp::List(s) => Ok(s.clone()),
+	_ => Err(CrispyErr::Reason(
+	    "Expected args form to be a list".to_string(),
+	))
+    }?;
+    list
+	.iter()
+	.map(|x| {
+	    match x {
+		CrispyExp::Symbol(s) => Ok(s.clone()),
+		_ => Err(CrispyErr::Reason("Expected symbols in the argument list".to_string(),))
+	    }
+	})
+	.collect()
+}
+#+END_SRC
+
+#+BEGIN_SRC emacs-lisp
+;; implement multiplication
+(df * (fn (a b)
+	  (if (= a 0)
+	      0
+	    (if (= b 0)
+		0
+	      (+ a (* a (- b 1)))))))
+
+;; implement integer division
+(df / (fn (a b)
+	  (if (= a 0)
+	      0
+	    (if (= b 0)
+		0
+	      (if (> b a)
+		  0
+		(+ 1 (/ (- a b))))))))
+
+;; implement exponentiation
+(df ^ (fn (a b)
+	  (if (= a 0)
+	      0
+	    (if (= b 0)
+		1
+	      (if (= b 1)
+		  a
+		(* a (^ a (- b 1))))))))
+
+;; implement a recursive fibonacci
+(df fib (fn (n)
+	    (if (= n 0) 1
+	      (if (= n 1) 1
+		(+ (fib (- n 1))
+		   (fib (- n 2)))))))
+
+;; some examples
+crispy >
+(df * (fn (a b) (if (= a 0) 0 (if (= b 0) 0 (+ a (* a (- b 1)))))))
+// ☯ => *
+
+crispy >
+(df / (fn (a b) (if (= a 0) 0 (if (= b 0) 0 (if (> b a) 0 (+ 1 (/ (- a b) b)))))))
+// ☯ => /
+
+crispy >
+(df ^ (fn (a b) (if (= a 0) 0 (if (= b 0) 1 (if (= b 1) a (* a (^ a (- b 1))))))))
+// ☯ => ^
+
+crispy >
+(df fib (fn (n) (if (= n 0) 0 (if (= n 1) 1 (+ (fib (- n 1)) (fib (- n 2)))))))
+// ☯ => fib
+
+crispy >
+(fib 15)
+// ☯ => 610
+crispy >
+(fib 20)
+// ☯ => 6765
+crispy >
+#+END_SRC
