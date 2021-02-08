@@ -146,5 +146,278 @@ fn main() {
 }
 #+END_SRC
 
-: thread 'main' panicked at 'called `Result::unwrap()` on an `Err` value: Os { code: 2, kind: NotFound, message: "No such file or directory" }', src/main.rs:5:37
+: thread 'main' panicked at 'called `Result::unwrap()` on an `Err` value: Os { code: 2, kind: NotFound, message: "No such file or directory" }', src/main.rs:5:
+
+Another method, expect, is similar to unwrap except that it lets you choose the panic! error message
+
+#+name:
+#+BEGIN_SRC rust
+use std::fs::File;
+
+fn main() {
+    let f = File::open("hello.txt").expect("Failed to open hello.txt");
+}
+#+END_SRC
+
+: thread 'main' panicked at 'Failed to open hello.txt: Os { code: 2, kind: NotFound, message: "No such file or directory" }', src/main.rs:5:37
+
+** Propagating Errors
+
+   When you're writing a function whose implementation calls something that might fail, instead of handling the error within this function, you can return the error to the calling code so that it can decide what to do. This is known as propagating the error and gives more control to the calling code, where there may be more information or logic that dictates how the error shoujld be handled than what you have available in the context of your code.
+
+   The code below reads a username from a file. If the file doesn't exist or can't be read, this function will return those errors to the code that called this function.
+   
+#+name:
+#+BEGIN_SRC rust
+use std::fs::File;
+use std::io;
+use std::io::Read;
+
+// Return either the String for username, or an io error
+fn read_username_from_file() -> Result<String, io::Error> {
+    let f = File::open("hello.txt");
+    // if file succeeds in being read, return it else return io error
+    let mut f = match f {
+	Ok(file) => file,
+	Err(e) => return Err(e),
+    };
+    
+    // instantiate a string to hold the username
+    let mut s = String::new();
+
+    // read the file to string else return an io error
+    match f.read_to_string(&mut s) {
+	Ok(_) => Ok(s),
+	Err(e) => Err(e),
+    }
+}
+#+END_SRC
+
+The pattern of propagating errors is so common in Rust that Rust provides the question mark operator ? to make this easier.
+
+** A Shortcut for Propagating Errors: the ? Operator
+
+#+name:
+#+BEGIN_SRC rust
+use std::fs::File;
+use std::io;
+use std::io::Read;
+
+fn read_username_from_file() -> Result<String, io::Error> {
+    let mut f = File::open("hello.txt")?;
+    let mut s = String::new();
+    f.read_to_string(&mut s)?;
+    Ok(s)
+}
+#+END_SRC
+
+In the function above, if the return value of an operation is an Ok, it is returned to the scope it was called in. If it is an Err, the Err will be returned from the whole function as if we had used the return keyword.
+
+The ? operator eliminates a lot of the boilerplate and makes this function's implementation simpler. We could even shorten the code:
+
+#+name:
+#+BEGIN_SRC rust
+use std::fs::File;
+use std::io;
+use std::io::Read;
+
+fn read_username_from_file() -> Result<String, io::Error> {
+    let mut s = String::new();
+    File::open("hello.txt")?.read_to_string(&mut s)?;
+    Ok(s)
+}
+#+END_SRC
+
+Even shorter:
+
+#+name:
+#+BEGIN_SRC rust
+use std::fs;
+use std::io;
+
+fn read_username_from_file() -> Result<String, io::Error> {
+    fs::read_to_string("hello.txt")
+}
+#+END_SRC
+
+This is such a common pattern it is part of Rust's std lib.
+
+** The ? Operator can be used in functions that return Result
+
+   The ? operator can be used in fns that have a return type of Result, because it is defined to work in the same way as the match expression.
+
+   If we try to use it in a function with a different return type, we get an error that points out only the Result or Option type or another type that implements std::ops::Try.
+
+   If your fn doesn't have this return type, but you want to use the ? operator, there are two options:
+   The first, and most obvious, is to change the return type to Result.
+   The second is to use a match or one of the Result<T, E> methods to handle the Result<T, E> in whatever way is appropriate.
+
+   The main fn is special, and there are restrictions on what its return type must be.
+   One valid return type for main is (), and another is Result<T, E>
+
+#+name:
+#+BEGIN_SRC rust
+use std::error::Error;
+use std::fs::File;
+
+fn main() -> Result<(), Box<dyn Error>> {
+    let f = File::open("hello.txt");
+    Ok(())
+}
+#+END_SRC
+
+The Box<dyn Error> is called a trait object -- for now we can read it to mean "any kind of error". 
+
+* To panic! or Not to panic!
+
+  When the code panics, there is no way to recover. When you choose to return a Result value, you give the calling code options rather than making the decision for it. Returning Result is a good default choice when you're defining a function that might fail.
+
+** Examples, Prototype Code, and Tests
+
+   When we're writing an example to illustrate a concept, its worthwhile to rely on methods like unwrap and expect which could return panic!. When you want to return to make the program more robust, you can go back and replace these calls.
+
+   If a method call fails in a test, we'd want the whole test to fail, even if that method isn't the functionality under test. Because panic! is how a test is marked as failure, calling unwrap or expect is exactly what should happen.
+
+** Cases in which you have more information than the compiler
+
+   It would also be appropriate to call unwrap when you have some other logic that ensures the Result will have an Ok value, but the logic isn't something that the compiler understands.
+
+   If you can ensure by manually inspecting the code that you'll never have an Err variant, it's acceptable to call unwrap.
+
+#+name:
+#+BEGIN_SRC rust
+fn main() {
+    use std::net::IpAddr;
+
+    let home: IpAddr = "127.0.0.1".parse().unwrap();
+}
+#+END_SRC
+
+** Guidelines for Error Handling
+
+   It's advisable to have your code panic when it's possible that your code could end up in a bad state.
+   In this context, a bad state is when some assumption, guarantee, contract, or invariant has been broken, such as when invalid, contradictory, or missing values are passed to your code -- plus one or more of the following:
+
+   - the bad state is not something that's expected to happen occasionally, i.e. you haven't set up defensive code to deal with it
+   - Your code at this point needs to rely on not being in this bad state
+   - There's not a good way to encode this information in the types we use
+
+   When failure is expected, it's more appropriate to return a Result than to make a panic! call. When your code performs operations on values, your code should verify the values are valid first and panic if the values aren't valid.
+
+   Having lots of checks in our functions would be needlessly verbose, so we can instead rely on Rust's type system to do many of the checks for us.
+
+   
+** Creating Custom Types for Validation
+
+   In our secret number game, we only validated that the number guessed was positive (with the u32 type).
+   It would be a useful enhancement to guide the user towards valid guesses and have different behavior when a user guesses a number in or out of range.
+   
+#+name:
+#+BEGIN_SRC rust
+use rand::Rng;
+use std::cmp::Ordering;
+use std::io;
+
+fn main() {
+    println!("Guess the number!");
+
+    let secret_number = rand::thread_rng().gen_range(1, 101);
+
+    loop {
+	// --snip--
+	println!("Input a guess");
+
+	let mut guess = String::new();
+
+	io::stdin()
+	    .read_line(&mut guess)
+	    .expect("Failed to read line");
+
+	// this is the important part here
+	// wrap guess in an option and handle the Err
+	let guess: i32 = match guess.trim().parse() {
+	    Ok(num) => num,
+	    Err(_) => continue,
+	};
+	// checks if guess in range, if not, tell the user and the start the next iteration of the loop and ask for another guess. 
+	if guess < 1 || guess > 100 {
+	    println!("The secret number will be between 1 and 100");
+	    continue;
+	}
+
+	match guess.cmp(&secret_number) {
+	    Ordering::Less => println!("Too small!"),
+	    Ordering::Greater => println!("Too big!"),
+	    Ordering::Equal => {
+		println!("You win!");
+		break;
+	    }
+	}
+    }
+}
+#+END_SRC
+
+This is not ideal, as if we had to replicate this constriction we would have to write a lot of code for that functionality.
+
+Instead we can make a new type and put the validations in a function to create an instance of the type rather than repeating the validations everywhere.
+That way, its safe for fns to use the new type in their signatures and confidently use the values they receive.
+
+We could define a Guess type like so that will only create an instance of Guess if the new function recieves a value between 1 and 100.
+
+#+name:
+#+BEGIN_SRC rust :tangle n_guess/src/main.rs
+use rand::Rng;
+use std::cmp::Ordering;
+use std::io;
+
+#[derive(PartialEq, Eq, PartialOrd, Ord)]
+pub struct Guess { 
+    value: i32,
+}
+
+impl Guess {
+    pub fn new(value: i32) -> Guess {
+	if value < 1 || value > 100 {
+	    panic!("Guess value must be between 1 and 100, got {}.", value);
+	}
+
+	Guess { value }
+    }
+
+    pub fn value(&self) -> i32 {
+	self.value
+    }
+}
+
+fn main() {
+    println!("Guess the number!");
+
+    let secret_number = Guess::new(rand::thread_rng().gen_range(1, 101));
+
+    loop {
+	println!("Input a guess");
+
+	// pull in guess as a String
+	let mut guess = String::new();
+
+	// parse it into a u32
+	io::stdin()
+	    .read_line(&mut guess)
+	    .expect("Failed to read line");
+
+	// create a new Guess type to hold the u32 and constrict it to [1, 100]
+	let guess_str = Guess::new(guess.trim().parse().unwrap());
+
+	// compare
+	match guess_str.cmp(&secret_number) {
+	    Ordering::Less => println!("Too small!"),
+	    Ordering::Greater => println!("Too big!"),
+	    Ordering::Equal => {
+		println!("You win!");
+		break;
+	    }
+	}
+    }
+}
+#+END_SRC
 
