@@ -285,5 +285,12 @@ The purpose of this example is to demonstrate a situation in which some generic 
  
 * Traits: Defining Shared Behavior
 
-  
+  A trait tells the Rust compiler about functionality a particular type has and can share with other types. We can use traits to define shared behavior in an abstract way.
+  We can use trait bounds to specify that a generic can be any type that has a certain behavior.
 
+** Defining a Trait
+
+   A type's behavior consists of the methods that we can call on that type. Different types share the same behavior if we can call the same methods on all those types. Trait definitions are a
+   way to group method signatures together to define a set of behaviors necessary to accomplish some purpose.
+
+   
