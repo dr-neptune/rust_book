@@ -273,9 +273,6 @@ fn main() {
 }
 #+END_SRC
 
-#+RESULTS: 
-: p3.x = 5, p3.y = c
-
 The purpose of this example is to demonstrate a situation in which some generic parameters are declared with impl and some are declared with the method definition. 
 
 ** Performance of Code Using Generics
@@ -293,4 +290,177 @@ The purpose of this example is to demonstrate a situation in which some generic 
    A type's behavior consists of the methods that we can call on that type. Different types share the same behavior if we can call the same methods on all those types. Trait definitions are a
    way to group method signatures together to define a set of behaviors necessary to accomplish some purpose.
 
+   Suppose we want to make a media aggregator library that can display summaries of data that might be stored in a NewsArticle or Tweet instance.
+
+   To do this, we need a summary from each type, and we need to request that summary by calling a summarize method on an instance.
    
+#+name:
+#+BEGIN_SRC rust
+pub trait Summary {
+    // define method signatures that describe the behaviors of the types that can implement this trait
+    // the compiler will enforce that any type that has the Summary trait will have the method summarize defined with this signature exactly.
+    fn summarize(&self) -> String;
+}
+#+END_SRC
+
+** Implementing a Trait on a Type
+
+   Now that we've defined the Summary trait, we can implement it on the types in our media aggregator.
+   
+#+name:
+#+BEGIN_SRC rust
+#![allow(unused)]
+pub trait Summary {
+    fn summarize(&self) -> String;
+}
+
+pub struct NewsArticle {
+    pub headline: String,
+    pub location: String,
+    pub author: String,
+    pub content: String,
+}
+
+impl Summary for NewsArticle {
+    fn summarize(&self) -> String {
+        format!("{}, by {} ({})", self.headline, self.author, self.location)
+    }
+}
+
+pub struct Tweet {
+    pub username: String,
+    pub content: String,
+    pub reply: bool,
+    pub retweet: bool,
+}
+
+impl Summary for Tweet {
+    fn summarize(&self) -> String {
+        format!("{}: {}", self.username, self.content)
+    }
+}
+
+fn main() {
+    let example = NewsArticle {
+        headline: "To the Internet!".to_string(),
+        location: "The Internet".to_string(),
+        author: "Everyone".to_string(),
+        content: "yes".to_string(),
+    };
+
+    let example2 = Tweet {
+        username: "blah".to_string(),
+        content: "not much to say".to_string(),
+        reply: true,
+        retweet: true,
+    };
+
+    println!(
+        "News Article:\t{}\nTweet:\t{}",
+        example.summarize(),
+        example2.summarize()
+    );
+}
+#+END_SRC
+
+Implementing a trait on a type is similar to implementing regular methods.
+The difference is that after impl, we put the trait name that we want to implement, then use the for keyword, and then specify the name of the type we want to implement the trait for.
+
+One restriction to note with trait implementations is that we can implement a trait on a type only if either the trait or the type is local to our crate.
+
+** Default Implementations
+
+   Sometimes it's useful to have default behavior for some or all of the methods in a trait instead of requiring implementations for all methods on every type.
+   Then, as we implement the trait on a particular type, we can override each method's default behavior.
+
+   We can specify a default string for the summarize method of the Summary trait instead of defining the method signature:
+
+#+name:
+#+BEGIN_SRC rust
+pub trait Summary {
+    fn summarize(&self) -> String {
+	String::from("(Read more...)")
+    }
+}
+#+END_SRC
+
+To use a default implementation to summarize, we specify an empty impl block
+
+#+name:
+#+BEGIN_SRC rust
+pub trait Summary {
+    fn summarize(&self) -> String {
+        String::from("(Read more...)")
+    }
+}
+
+impl Summary for NewsArticle {}
+
+pub struct NewsArticle {
+    pub headline: String,
+    pub location: String,
+    pub author: String,
+    pub content: String,
+}
+
+fn main() {
+    let article = NewsArticle {
+        headline: "Penguins".to_string(),
+        location: "Antarctica".to_string(),
+        author: "GTP4".to_string(),
+        content: "The Pittsburgh Penguins have somehow ended up in Antarctica".to_string(),
+    };
+
+    println!("News Article:\t{}", article.summarize());
+}
+#+END_SRC
+
+Creating a default implementation for summarize doesn't allow us to change anything about the implementation of summary on another struct. The syntax for implementing a default implementation is the same as the syntax for implementing a trait method that doesn't have a default implementation.
+
+Default implementations can call other methods in the same trait, even if those other methods don't have a default implementation. In this way, a trait can provude a lot of useful functionality and only require implementors to specify a small part of it.
+
+#+name:
+#+BEGIN_SRC rust
+#![allow(unused)]
+
+// we only need to define summarize_author when we implement the trait on a type
+pub trait Summary {
+    fn summarize_author(&self) -> String;
+
+    fn summarize(&self) -> String {
+        format!("(Read more from {}...)", self.summarize_author())
+    }
+}
+
+pub struct Tweet {
+    pub username: String,
+    pub content: String,
+    pub reply: bool,
+    pub retweet: bool,
+}
+
+impl Summary for Tweet {
+    fn summarize_author(&self) -> String {
+        format!("@{}", self.username)
+    }
+}
+
+fn main() {
+    let tweet = Tweet {
+        username: "horse_ebooks".to_string(),
+        content: "Of course, as you probably know, people".to_string(),
+        reply: false,
+        retweet: false,
+    };
+
+    println!("1 new tweet: {}", tweet.summarize());
+}
+#+END_SRC
+
+#+RESULTS: 
+: 1 new tweet: (Read more from @horse_ebooks...)
+
+Note that it isn't possible to call the default implementation from an overriding implementation of that same method.
+
+** Traits as Parameters
+
