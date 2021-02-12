@@ -457,10 +457,300 @@ fn main() {
 }
 #+END_SRC
 
-#+RESULTS: 
-: 1 new tweet: (Read more from @horse_ebooks...)
-
 Note that it isn't possible to call the default implementation from an overriding implementation of that same method.
 
 ** Traits as Parameters
 
+   Now that we know how to define and implement traits, we can explore how to use traits to define functions that accept many different types.
+
+   We can define a notify function that calls the summarize method on its item parameter, which is of some type that implements the Summary trait.
+
+#+name:
+#+BEGIN_SRC rust
+pub trait Summary {
+    fn summarize(&self) -> String;
+}
+
+pub struct NewsArticle {
+    pub headline: String,
+    pub location: String,
+    pub author: String,
+    pub content: String,
+}
+
+impl Summary for NewsArticle {
+    fn summarize(&self) -> String {
+        format!("{}, by {} ({})", self.headline, self.author, self.location)
+    }
+}
+
+pub struct Tweet {
+    pub username: String,
+    pub content: String,
+    pub reply: bool,
+    pub retweet: bool,
+}
+
+impl Summary for Tweet {
+    fn summarize(&self) -> String {
+        format!("{}: {}", self.username, self.content)
+    }
+}
+
+pub fn notify(item: &impl Summary) {
+    println!("Breaking News! {}", item.summarize());
+}
+
+fn main() {}
+#+END_SRC
+
+Instead of a concrete type for the item parameter, we specify the impl keyword and the trait name. This parameter accepts any type that implements the specified trait.
+
+** Trait Bound Syntax
+
+   The impl Trait syntax works for straight-forward cases, but is actually syntactic sugar for a longer form, which is called a trait bound:
+
+#+name:
+#+BEGIN_SRC rust
+pub fn notify<T: Summary>(item: &T) {
+    println!("Breaking News! {}", item.summarize());
+}
+#+END_SRC
+
+If we want to allow item1 and item2 to have different types, using impl Trait would be appropriate (as long as both types implement Summary).
+
+#+name:
+#+BEGIN_SRC rust
+pub fn notify(item1: &impl Summary, item2: &impl Summary) {
+
+}
+#+END_SRC
+
+If we want to force both parameters to have the same type, that's only possible to express using a trait bound like this:
+
+#+name:
+#+BEGIN_SRC rust
+pub fn notify<T: Summary>(item1: &T, item2: &T) {
+
+}
+#+END_SRC
+
+** Specifying Multiple Trait Bounds with the + Syntax
+
+   We can also specify more than one trait bound.
+
+#+name:
+#+BEGIN_SRC rust
+pub fn notify(item: &(impl Summary + Display)) {}
+#+END_SRC
+
+also works with trait bounds on generic types
+
+#+name:
+#+BEGIN_SRC rust
+pub fn notify<T: Summary + Display>(item: &T) {}
+#+END_SRC
+
+** Clearer Trait Bounds with where Clauses
+
+   Each generic has its own trait bounds, so functions with multiple generic type parameters can contain lots of trait bound information between the function's name and its parameter list.
+
+   Instead of writing this
+
+#+name:
+#+BEGIN_SRC rust
+fn some_function<T: Display + Clone, U: Clone + Debug>(t: &T, u: &U) -> i32 {}
+#+END_SRC
+
+We can use a where clause like this:
+
+#+name:
+#+BEGIN_SRC rust
+fn some_function<T, U>(t: &T, u: &U) -> i32
+where T: Display + Clone,
+      U: Clone + Debug {
+    
+}
+#+END_SRC
+
+** Returning Types that Implement Traits
+
+   We can also use the impl Trait syntax in the return position to return a value of some type that implements a trait
+
+#+name:
+#+BEGIN_SRC rust
+fn returns_summarizable() -> impl Summary {
+    Tweet {
+	username: String::from("horse_ebooks"),
+	content: String::from("of course, as you probably already know, people"),
+	reply: false,
+	retweet: false,
+    }
+}
+#+END_SRC
+
+The ability to return a type that is only specified by the trait it implements is especially useful in the context of closures and iterators. Closures and iterators create types that only the compiler knows or types that are very long to specify. The impl Trait syntax lets you concisely specify that a function returns some type that implements the Iterator trait without needing to write out a very long type.
+
+However, you can only use impl Trait if you're returning a single type. For example, code that returns either a news article or a tweet wouldn't work.
+We'll cover how to write a fn with this behavior in ch 17.
+
+** Fixing the largest Function with Trait Bounds
+
+   Previously we tried to fun the largest fn with generic type parameters, but it did not compile since "T needed a bound for std::cmp::PartialOrd"
+   In the body of largest, we wanted to compare two values of type T using the greater than > operator.
+   Since this operator is defined as a default method on the std lib trait std::cmp::PartialOrd, we need to specify PartialOrd in the trait bounds for T so the largest function can work on slices of any type that we can compare.
+
+#+name:
+#+BEGIN_SRC rust
+// change the signature of largest
+fn largest<T: PartialOrd>(list: &[T]) -> T {
+    let mut largest = list[0];
+
+    for &item in list {
+	if item > largest {
+	    largest = item;
+	}
+    }
+
+    largest
+}
+
+fn main() {
+    let number_list = vec![34, 50, 25, 100, 65];
+    let result = largest(&number_list);
+    let char_list = vec!['y', 'm', 'a', 'q'];
+    println!("The largest number is {}", result);
+    let result = largest(&char_list);
+    println!("The largest char is {}", result);
+}
+#+END_SRC
+
+Unfortunately, this still doesn't work. With our non-generic versions of the largest fn we are trying to find the largest i32 or char. These types have a known size that can be stored on the stack, so they implement the Copy trait.
+When we made the fn generic, it became possible for the list parameter to have types in it that don't implement the Copy trait. Consequently, we wouldn't be able to move the value out of list[0] and into the largest variable.
+
+To call this code with only those types that implement the Copy trait, we can add Copy to the trait bounds of T
+
+#+name:
+#+BEGIN_SRC rust
+// change the signature of largest
+fn largest<T: PartialOrd + Copy>(list: &[T]) -> T {
+    let mut largest = list[0];
+
+    for &item in list {
+        if item > largest {
+            largest = item;
+        }
+    }
+
+    largest
+}
+
+fn main() {
+    let number_list = vec![34, 50, 25, 100, 65];
+    let result = largest(&number_list);
+    let char_list = vec!['y', 'm', 'a', 'q'];
+    println!("The largest number is {}", result);
+    let result = largest(&char_list);
+    println!("The largest char is {}", result);
+}
+#+END_SRC
+
+: The largest number is 100
+: The largest char is y
+
+If we don't want to restrict the largest function to the types that implement the Copy trait, we could specify that T has the trait bound Clone instead of copy.
+Using the clone function means we're potentially making more heap allocations in the case of types that own heap data like String, which could be slow when working with a lot of data.
+
+** Using Trait Bounds to Conditionally Implement Methods
+
+   By using a trait bound with an impl block that uses generic type parameters, we can implement methods conditionally for types that implement the specified traits.
+   
+#+name:
+#+BEGIN_SRC rust
+use std::fmt::Display;
+
+struct Pair<T> {
+    x: T,
+    y: T,
+}
+
+impl<T> Pair<T> {
+    fn new(x: T, y: T) -> Self {
+        Self { x, y }
+    }
+}
+
+impl<T: Display + PartialOrd> Pair<T> {
+    fn cmp_display(&self) {
+        if self.x >= self.y {
+            println!("The largest member is x = {}", self.x);
+        } else {
+            println!("The largest member is y = {}", self.y);
+        }
+    }
+}
+
+fn main() {
+    let value = Pair { x: 2.0, y: 3.0 };
+    let other_value = Pair {
+        x: String::from("Hello"),
+        y: String::from("World!"),
+    };
+
+    value.cmp_display();
+    other_value.cmp_display();
+} 
+#+END_SRC
+
+We can also conditionally implement a trait for any type that implements another trait.
+Implementations of a trait on any type that satisfies the trait bounds are called blanket implementations and are extensively used in the Rust standard library.
+
+For example, the std lib implements the ToString trait on any type that implements the Display trait.
+
+#+name:
+#+BEGIN_SRC rust
+impl<T: Display> ToString for T {}
+#+END_SRC
+
+Rather than ensuring that a type has the behavior we want, lifetimes ensure that references are valid as long as we need them to be.
+
+* Validating References with Lifetimes
+
+  Every reference in Rust has a lifetime, which is the scope for which that reference is valid.
+
+** Preventing Dangling References with Lifetimes
+
+   The main aim of lifetimes is to prevent dangling references, which cause a program to reference data other than the data it's intended to reference.
+
+#+name:
+#+BEGIN_SRC rust
+fn main() {
+    {
+	let r;
+	{
+	    let x = 5;
+	    r = &x;
+	}
+
+	println!("r: {}", r);
+    }
+}
+#+END_SRC
+
+#+BEGIN_SRC rust
+error[E0597]: `x` does not live long enough
+  --> src/main.rs:7:10
+   |
+7  |         r = &x;
+   |             ^^ borrowed value does not live long enough
+8  |     }
+   |     - `x` dropped here while still borrowed
+9  | 
+10 |     println!("r: {}", r);
+   |                       - borrow later used here
+#+END_SRC
+
+** The Borrow Checker
+
+   The Rust compiler has a borrow checker that compares scopes to determine whether all borrows are valid.
+   
