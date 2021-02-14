@@ -1,0 +1,493 @@
+* Introduction to Rust Web Applications
+
+  All glory to [[https://erwabook.com/intro/index.html][Introduction to Rust Web Applications]]
+
+  This goes over a full stack, all Rust approach to building web apps.
+
+  It builds a todo app (as tradition), and walks through the layers of the app starting from the database.
+  
+  It uses SQLite3 as the db engine
+  
+  Then we write a db access library that higher layers will build on. We will
+  be using CLI driven programs that use the db access layer to read and write to the database. This is generally more
+  convenient and safer than modifying or querying the db directly.
+
+  Then we have the REST API (built on Rocket)
+
+  Our frontend client will send HTTP requests to our Rocket program. When Rocket calls our code, we will use the db access layer to read or write to the DB.
+  The REST API code will massage the data into an appropriate format (JSON) before returning it to the client.
+
+  The top layer, or frontend, is the web ui that is presented to the user. This runs in a web browser as WebAssembly (JavaScript). We will use the Seed framework
+  to compile our Rust code into a webassembly app that we can load into the browser.
+
+* Set up ORM & Database
+
+  We assume sqlite is installed.
+  
+** Install Diesel
+
+   Diesel is an ORM for Rust that provides us with a type-safe way to interact with the database.
+
+#+BEGIN_SRC toml :tangle irwa/Cargo.toml
+[package]
+name = "irwa"
+version = "0.1.0"
+authors = ["dr-neptune <mrose4@worcester.edu>"]
+edition = "2018"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+diesel = { version = "1.0.0", features = ["sqlite"]}
+#+END_SRC
+
+We can also install the Diesel cli
+
+#+BEGIN_SRC bash
+cargo install diesel_cli --no-default-features --features sqlite
+#+END_SRC
+
+This installs the Diesel CLI tool will support for SQLite3
+
+We need to tell the diesel_cli what our database filename is.
+
+**Note:**
+
+In order to get diesel_cli to work with nix, I needed to include sqlite as a service in my nix-shell file
+
+#+name:
+#+BEGIN_SRC nix
+let
+  moz_overlay = import (builtins.fetchTarball https://github.com/mozilla/nixpkgs-mozilla/archive/master.tar.gz);
+  nixpkgs = import <nixpkgs> {
+    overlays = [ moz_overlay ];
+  };
+  ruststable = (nixpkgs.latest.rustChannels.stable.rust.override {
+    extensions = [ "rust-src"
+                   "clippy-preview"
+                   "rls-preview"
+                   "rustfmt-preview"
+                   # "llvm-tools"
+                   "rust-analysis"
+                   "rust-std"
+                   "rustc-dev"];}
+  );
+in
+with nixpkgs;
+stdenv.mkDerivation {
+  name = "rust";
+  buildInputs = [ rustup ruststable glibc sqlite ];
+}
+#+END_SRC
+
+Next we want to tell diesel_cli what our database filename is.
+
+We can do this by using the DATABASE_URL environment variable, or by setting a file called .env.
+
+#+name:
+#+BEGIN_SRC bash
+echo 'DATABASE_URL=./testdb.sqlite3' > .env
+# get diesel to setup our workspace for us
+diesel setup
+#+END_SRC
+
+Now we should have a database, and we should see a file called testdb.sqlite3 in our directory contents.
+
+* Write the First Migration
+
+  Now that we have a database and ORM installed, we should store some structured data.
+  
+  Diesel makes changes to the database structure as a series of "migrations". For each migration, we need to provide the SQL commands required both to implement whatever db change we're making and to undo that change.
+  So whenever we write a migration that creates a new table, we also need to provide the SQL to remove that table if our migration needs to be undone.
+
+** Generate the Skeleton
+
+   We'll use diesel's cli to generate our first migration:
+
+#+name:
+#+BEGIN_SRC bash
+diesel migration generate task
+#+END_SRC
+
+In our new migrations folder, we have another timestamped subdirectory with two stub files, up and down.sql
+
+** Write the SQL
+
+#+name:
+#+BEGIN_SRC sql 
+CREATE TABLE task (
+id INTEGER NOT NULL,
+title TEXT NOT NULL,
+PRIMARY KEY (id)
+);
+#+END_SRC
+
+This will create a very simple table for storing our task list.
+
+** Test the Migration
+
+#+name:
+#+BEGIN_SRC bash
+diesel migration run
+echo .dump | sqlite3 testdb.sqlite3
+#+END_SRC
+
+The last command will show the table we created.
+
+The other part of testing a migration is ensuring that rollbacks work. This is done via the redo command, which revents to the latest migration and then re-runs it.
+
+#+name:
+#+BEGIN_SRC bash
+diesel migration redo
+#+END_SRC
+
+Our redo failed because we forgot to modify down.sql
+
+#+name:
+#+BEGIN_SRC sql :tangle irwa/migrations/2021-02-14-004828_task/down.sql 
+DROP TABLE task;
+#+END_SRC
+
+Now it runs successfully
+
+* Create a Database Access Layer
+
+  For the convenience of our upper layer application, we'll write a set of thin wrappers around the Diesel code and expose it as a module.
+
+  As one way of testing these wrappers, we'll also build an executable with subcommands that exercise each of the wrapper functions.
+  Then this suite of subcommands can be used as a debugging / troubleshooting / experimentation tool.
+
+** Inserting a Task
+
+   We currently just have one table, with no rows.
+
+   We now also have a diesel.toml in our directory
+
+#+name:
+#+BEGIN_SRC bash :dir irwa
+ls
+#+END_SRC
+
+| Cargo.lock     |
+| Cargo.toml     |
+| diesel.toml    |
+| migrations     |
+| src            |
+| target         |
+| testdb.sqlite3 |
+
+#+name:
+#+BEGIN_SRC toml
+[print_schema]
+file = "src/schema.rs"
+#+END_SRC
+
+This refers to a src/schema.rs
+
+#+name:
+#+BEGIN_SRC rust
+table! {
+    task (id) {
+        id -> Integer,
+        title -> Text,
+    }
+}
+#+END_SRC
+
+We got this when we ran our schema migration. It will automatically get updated every time we run a migration (in either direction). The table! macro generates a bunch of code that we can use to work with the tables in our database.
+
+First we need to think about where we want to keep this code. Right now all we have is a binary crate, but we want to build up a little library.
+
+Lets plan on having the following structure
+
+mytodo
+  +-- db
+  |    +-- models
+  |    +-- schema
+  +-- rest
+
+  We'll create the db module now. We have to let Rust know we're making a db module by creating a src/lib.rs
+
+#+name:
+#+BEGIN_SRC rust :tangle irwa/src/lib.rs
+#[macro_use]
+extern crate diesel;
+
+pub mod db;
+#+END_SRC
+
+That also pulls in Diesel's macros -- our code will heavily rely on those.
+
+Now we want to update our diesel.toml to point to the new location:
+
+#+name:
+#+BEGIN_SRC toml :tangle irwa/diesel.toml
+[print_schema]
+file = "src/db/schema.rs"
+#+END_SRC
+
+We can test that we've got Diesel set up correctly by removing the existing schema.rs file and rerunning the migration to generate a new one
+
+#+name:
+#+BEGIN_SRC bash 
+rm src/schema.rs
+diesel migration redo
+ls src/db
+#+END_SRC
+
+Now we can make some glue. We need to define some types that we can use for reading and writing to the database.
+
+#+name:
+#+BEGIN_SRC rust
+use super::schema::task;
+
+#[derive(Insertable)]
+#[table_name = "task"]
+pub struct NewTask<'a> {
+    pub title: &'a str,
+}
+#+END_SRC
+
+By deriving our struct from Insertable and setting the table_name to what we've got in our schema, Diesel will automagically give us code to perform database inserts.
+In src/db/mod.rs we can add our function to take advantage of this:
+
+#+name:
+#+BEGIN_SRC rust
+use diesel::{prelude::*, sqlite::SqliteConnection};
+
+// expose our models and schema submodules
+pub mod models;
+pub mod schema;
+
+// connect to the database
+pub fn establish_connection() -> SqliteConnection {
+    // anything not a toy application needs a better mechanism for setting the path to the database
+    let db = "./testdb.sqlite3";
+    SqliteConnection::establish(db)
+	.unwrap_or_else(|_| panic!("Error connecting to {}", db))
+}
+
+// create a task
+pub fn create_task(connection: &SqliteConnection, title: &str) {
+    // create an object from a struct we defined in models
+    let task = models::NewTask { title, status: "pending" };
+
+    // takes the table from our schema, gives us back an object that we can add to with values
+    diesel::insert_into(schema::task::table)
+	.values(&task)
+	// which we can execute
+	.execute(connection)
+	.expect("Error inserting new task");
+}
+#+END_SRC
+
+** Create a Development Tool
+
+   Now we can create the tool mentioned earlier to read and write from the database.
+
+   First we create the infrastructure for that
+
+#+BEGIN_SRC bash
+mkdir src/bin
+#+END_SRC
+
+#+name:
+#+BEGIN_SRC rust :tangle irwa/src/bin/todo.rs
+// for processing command line arguments
+use std::env;
+// for using the db functions we just wrote
+use irwa::db::{create_task, establish_connection, query_task};
+
+// print help in the event of unparseable sets of arguments
+fn help() {
+    println!("subcommands:");
+    println!("    new<title>: create a new task");
+    println!("    show: show current tasks");
+}
+
+// subcommand handler for new task
+fn new_task(args: &[String]) {
+    if args.len() < 1 {
+	println!("new: missing <title>");
+	help();
+	return;
+    }
+
+    // ow we good
+    let conn = establish_connection();
+    create_task(&conn, &args[0]);
+}
+
+// match the first arg against our set of possible subcommands and dispatch the remaining args to a handler. Call help in case there is no arg or we can't parse it
+fn main() {
+    let args: Vec<String> = env::args().collect();
+
+    if args.len() < 2 {
+	help();
+	return;
+    }
+
+    let subcommand = &args[1];
+    match subcommand.as_ref() {
+	"new" => new_task(&args[2..]),
+	"show" => show_tasks(&args[2..]),
+	_ => help(),
+    }
+}
+#+END_SRC
+
+Now we can test it
+
+#+name:
+#+BEGIN_SRC bash
+cargo run --bin todo new 'do the thing'
+cargo run --bin todo new 'get stuff done'
+echo 'select * from task;' | sqlite3 testdb.sqlite3
+#+END_SRC
+
+** Querying Tasks
+
+   When we wrote our insertion function, we used a struct that was derived from Insertable. To perform queries, we'll want to use a struct derived from Queryable.
+
+   We will add this to src/db/models.rs
+
+
+#+BEGIN_SRC rust :tangle irwa/src/db/models.rs
+#[derive(Queryable)]
+pub struct Task {
+    pub id: i32,
+    pub title: String,
+    pub status: String,
+}
+#+END_SRC
+
+#+name:
+#+BEGIN_SRC rust :tangle irwa/src/db/mod.rs
+// return a Vec of this new model struct when querying the task table
+pub fn query_task(connection: &SqliteConnection) -> Vec<models::Task> {
+    schema::task::table
+	.load::<models::Task>(connection)
+	.expect("Error loading tasks")
+}
+#+END_SRC
+
+And we should add a new subcommand handler to src/bin/todo.rs
+
+#+name:
+#+BEGIN_SRC rust
+fn show_tasks(args: &[String]) {
+    if args.len() > 0 {
+	println!("show: unexpected argument");
+	help();
+	return;
+    }
+
+    let conn = establish_connection();
+
+    println!("Tasks\n-----");
+    for task in query_task(&conn) {
+	println!("{}", task.title);
+    }
+}
+#+END_SRC
+
+We've written a very simple data abstraction layer, and we've exercised it by writing a CLI tool for poking and peeking at the database.
+
+Our data model is so simple, our app isn't actually capable of being useful. There is no mechanism to mark a task done, or even delete a task.
+
+We are completely missing
+- comments
+- documentation outside of help
+- tests
+- continuous integration
+
+Even with these shortcomings we have enough infrastructure upon which to build out next layer, the REST API.
+
+** Database Layer Exercises
+
+*** Add a "done" column to the table
+
+Write and run a migration, update the models, update the insertion code to set the task as pending (not done) on creation, and update the show subcommand to show done/pending status.
+
+So for this we need to:
+update the up sql command to contain another column for task status
+set the default as pending
+update the show command to show done / pending status
+
+#+name:
+#+BEGIN_SRC sql :tangle irwa/migrations/2021-02-14-004828_task/up.sql 
+CREATE TABLE task (
+id INTEGER NOT NULL,
+title TEXT NOT NULL,
+status TEXT NOT NULL,
+PRIMARY KEY (id)
+);
+#+END_SRC
+
+#+name:
+#+BEGIN_SRC rust :tangle irwa/src/db/models.rs
+use super::schema::task;
+
+#[derive(Insertable)]
+#[table_name = "task"]
+pub struct NewTask<'a> {
+    pub title: &'a str,
+    pub status: &'a str,
+}
+#+END_SRC
+
+#+name:
+#+BEGIN_SRC rust :tangle irwa/src/db/mod.rs
+use diesel::{prelude::*, sqlite::SqliteConnection};
+
+// expose our models and schema submodules
+pub mod models;
+pub mod schema;
+
+// connect to the database
+pub fn establish_connection() -> SqliteConnection {
+    // anything not a toy application needs a better mechanism for setting the path to the database
+    let db = "./testdb.sqlite3";
+    SqliteConnection::establish(db)
+	.unwrap_or_else(|_| panic!("Error connecting to {}", db))
+}
+
+// create a task
+pub fn create_task(connection: &SqliteConnection, title: &str) {
+    // create an object from a struct we defined in models
+    let task = models::NewTask { title: title, status: "pending" };
+
+    // takes the table from our schema, gives us back an object that we can add to with values
+    diesel::insert_into(schema::task::table)
+	.values(&task)
+	// which we can execute
+	.execute(connection)
+	.expect("Error inserting new task");
+}
+#+END_SRC
+
+#+BEGIN_SRC rust :tangle irwa/src/bin/todo.rs
+fn show_tasks(args: &[String]) {
+    if args.len() > 0 {
+	println!("show: unexpected argument");
+	help();
+	return;
+    }
+
+    let conn = establish_connection();
+
+    println!("Tasks\n-----");
+    for task in query_task(&conn) {
+	println!("Title:\t{}\nStatus:\t{}", task.title, task.status);
+    }
+}
+#+END_SRC
+
+Add a subcommand to mark tasks done. You'll need to decide whether to let the user provide the title or the id.
+If the former, then in the db layer, you may need to add a function to look up by title, and call that from the subcommand so that you can pass the id to the other new db layer function you'll add that udpates the record to set done to true.
+If the latter, you should probably modify the show subcommand to display ids.
+This sounds like a lot of steps but they're all fairly simple. Check out the Diesel guides for help with queries that filter, and with update operations.
+
+*** Add a subcommand to delete a task
+As above, you'll need to decide whether to have the user provide the id or the title. Then add a db layer function to delete a task, and a subcommand to call it.
+
