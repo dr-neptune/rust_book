@@ -28,7 +28,7 @@
 
    Diesel is an ORM for Rust that provides us with a type-safe way to interact with the database.
 
-#+BEGIN_SRC toml :tangle irwa/Cargo.toml
+#+BEGIN_SRC toml 
 [package]
 name = "irwa"
 version = "0.1.0"
@@ -209,9 +209,13 @@ mytodo
   We'll create the db module now. We have to let Rust know we're making a db module by creating a src/lib.rs
 
 #+name:
-#+BEGIN_SRC rust :tangle irwa/src/lib.rs
+#+BEGIN_SRC rust :tangle irwa/backend/src/lib.rs
 #[macro_use]
 extern crate diesel;
+
+// needed for json serialization at the rest api level
+#[macro_use]
+extern crate serde;
 
 pub mod db;
 #+END_SRC
@@ -223,7 +227,7 @@ Now we want to update our diesel.toml to point to the new location:
 #+name:
 #+BEGIN_SRC toml :tangle irwa/diesel.toml
 [print_schema]
-file = "src/db/schema.rs"
+file = "backend/src/db/schema.rs"
 #+END_SRC
 
 We can test that we've got Diesel set up correctly by removing the existing schema.rs file and rerunning the migration to generate a new one
@@ -292,7 +296,7 @@ mkdir src/bin
 #+END_SRC
 
 #+name:
-#+BEGIN_SRC rust :tangle irwa/src/bin/todo.rs
+#+BEGIN_SRC rust
 // for processing command line arguments
 use std::env;
 // for using the db functions we just wrote
@@ -351,9 +355,9 @@ echo 'select * from task;' | sqlite3 testdb.sqlite3
 
    We will add this to src/db/models.rs
 
-
-#+BEGIN_SRC rust :tangle irwa/src/db/models.rs
-#[derive(Queryable)]
+#+BEGIN_SRC rust :tangle irwa/backend/src/db/models.rs
+#[derive(Queryable, Identifiable, Serialize)]
+#[table_name = "task"]
 pub struct Task {
     pub id: i32,
     pub title: String,
@@ -362,7 +366,7 @@ pub struct Task {
 #+END_SRC
 
 #+name:
-#+BEGIN_SRC rust :tangle irwa/src/db/mod.rs
+#+BEGIN_SRC rust :tangle irwa/backend/src/db/mod.rs
 // return a Vec of this new model struct when querying the task table
 pub fn query_task(connection: &SqliteConnection) -> Vec<models::Task> {
     schema::task::table
@@ -425,10 +429,10 @@ PRIMARY KEY (id)
 #+END_SRC
 
 #+name:
-#+BEGIN_SRC rust :tangle irwa/src/db/models.rs
+#+BEGIN_SRC rust :tangle irwa/backend/src/db/models.rs
 use super::schema::task;
 
-#[derive(Insertable)]
+#[derive(Insertable, AsChangeset)]
 #[table_name = "task"]
 pub struct NewTask<'a> {
     pub title: &'a str,
@@ -437,14 +441,16 @@ pub struct NewTask<'a> {
 #+END_SRC
 
 #+name:
-#+BEGIN_SRC rust :tangle irwa/src/db/mod.rs
+#+BEGIN_SRC rust :tangle irwa/backend/src/db/mod.rs
 use diesel::{prelude::*, sqlite::SqliteConnection};
+// use schema::tasks::dsl::task::status, status};
+use crate::db::schema::task::status;
 
 // expose our models and schema submodules
 pub mod models;
 pub mod schema;
 
-// connect to the database
+// connect to the database 
 pub fn establish_connection() -> SqliteConnection {
     // anything not a toy application needs a better mechanism for setting the path to the database
     let db = "./testdb.sqlite3";
@@ -463,10 +469,51 @@ pub fn create_task(connection: &SqliteConnection, title: &str) {
 	// which we can execute
 	.execute(connection)
 	.expect("Error inserting new task");
+
+    println!("Adding Task: {}", title);
+}
+
+pub fn update_status(title: &[String], new_status: String) {
+    let id = lookup_title_id(title);
+    let conn = establish_connection();
+    for task in query_task(&conn) {
+	if &id == &task.id {
+	    // update it!
+	    diesel::update(&task)
+		.set(status.eq(&new_status))
+		.execute(&conn)
+		.expect("Error updating task");
+	    println!("Updated Task: {} to [{}]", &title[0], new_status);
+	}
+    }
+}
+
+pub fn delete_task(title: &[String]) {
+    let id = lookup_title_id(title);
+    let conn = establish_connection();
+    for task in query_task(&conn) {
+	if &id == &task.id {
+	    diesel::delete(&task)
+		.execute(&conn)
+		.expect("Error deleting task");
+	    println!("Deleted Task: {}", &title[0]);
+	}
+    }
+}
+
+fn lookup_title_id(arg: &[String]) -> i32 {
+    let conn = establish_connection();
+
+    for task in query_task(&conn) {
+	if &arg[0] == &task.title {
+	    return task.id;
+	}
+    }
+    return 0;
 }
 #+END_SRC
 
-#+BEGIN_SRC rust :tangle irwa/src/bin/todo.rs
+#+BEGIN_SRC rust :tangle irwa/backend/src/bin/todo.rs
 fn show_tasks(args: &[String]) {
     if args.len() > 0 {
 	println!("show: unexpected argument");
@@ -488,6 +535,409 @@ If the former, then in the db layer, you may need to add a function to look up b
 If the latter, you should probably modify the show subcommand to display ids.
 This sounds like a lot of steps but they're all fairly simple. Check out the Diesel guides for help with queries that filter, and with update operations.
 
+#+name:
+#+BEGIN_SRC rust :tangle irwa/backend/src/bin/todo.rs
+// we want it to return an id.
+// if id not found, return 0
+fn lookup_title_id(arg: &[String]) -> i32 {
+    let conn = establish_connection();
+
+    for task in query_task(&conn) {
+	if &arg[0] == &task.title {
+	    return task.id;
+	}
+    }
+    return 0;
+}
+
+// write a fn that pattern matches on lookup_title_id output and outputs to the console
+fn lookup_title(arg: &[String]) {
+    if arg.len() == 0 {
+	println!("lookup_title: no argument!");
+	help();
+	return;
+    }
+    if arg.len() > 1 {
+	println!("lookup_title: only supports 1 title lookup at a time");
+	help();
+	return;
+    }
+
+    let val = lookup_title_id(arg);
+
+    if val == 0 {
+	println!("ID not found!");
+    } else {
+	println!("ID:\t{}", lookup_title_id(arg));
+    }
+}
+#+END_SRC
+
+Then we can update the todo to allow for calling the lookup
+
+#+name:
+#+BEGIN_SRC rust :tangle irwa/backend/src/bin/todo.rs
+// for processing command line arguments
+use std::env;
+// for using the db functions we just wrote
+use backend::db::{create_task, establish_connection, query_task, update_status, delete_task};
+
+// print help in the event of unparseable sets of arguments
+fn help() {
+    println!("subcommands:");
+    println!("    new <title>: create a new task");
+    println!("    delete <title>: delete a task");
+    println!("    show: show current tasks");
+    println!("    lookup_title <title>: lookup id by title");
+    println!("    pending <title>: set task to pending by title");
+    println!("    done <title>: set task to done by title");
+}
+
+// subcommand handler for new task
+fn new_task(args: &[String]) {
+    if args.len() < 1 {
+	println!("new: missing <title>");
+	help();
+	return;
+    }
+
+    // ow we good
+    let conn = establish_connection();
+    create_task(&conn, &args[0]);
+}
+
+// match the first arg against our set of possible subcommands and dispatch the remaining args to a handler. Call help in case there is no arg or we can't parse it
+fn main() {
+    let args: Vec<String> = env::args().collect();
+
+    if args.len() < 2 {
+	help();
+	return;
+    }
+
+    let subcommand = &args[1];
+    match subcommand.as_ref() {
+	"new" => new_task(&args[2..]),
+	"delete" => delete_task(&args[2..]),
+	"show" => show_tasks(&args[2..]),
+	"lookup_title" => lookup_title(&args[2..]),
+	"pending" => update_status(&args[2..], "PENDING".to_string()),
+	"done" => update_status(&args[2..], "DONE".to_string()),
+	_ => help(),
+    }
+}
+#+END_SRC
+
+
 *** Add a subcommand to delete a task
 As above, you'll need to decide whether to have the user provide the id or the title. Then add a db layer function to delete a task, and a subcommand to call it.
 
+This was done.
+
+* Create a REST API Layer
+
+  Since our GUI is going to run in the browser, we need something for the browser to talk to.
+
+** Add Rocket to Cargo.toml
+
+#+name:
+#+BEGIN_SRC toml
+[package]
+name = "irwa"
+version = "0.1.0"
+authors = ["dr-neptune <mrose4@worcester.edu>"]
+edition = "2018"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+diesel = { version = "1.0.0", features = ["sqlite"]}
+rocket = "0.4.2"
+#+END_SRC
+
+** Create the Backend Binary
+
+   We'll write our backend in src/bin/backend.rs
+
+#+name:
+#+BEGIN_SRC rust 
+// macros that Rocket needs
+#![feature(proc_macro_hygiene, decl_macro)]
+#[macro_use]
+extern crate rocket;
+
+use irwa::db::models::Task;
+use irwa::db::{query_task, establish_connection};
+
+#[get("/tasks")]
+fn tasks_get() -> String {
+    "this is a response\n".into()
+}
+
+fn main() {
+    rocket::ignite()
+	.mount("/", routes![tasks_get])
+	.launch();
+}
+#+END_SRC
+
+** Querying the Database
+
+   Now we want to update our code to actually get info from the database.
+   
+#+name:
+#+BEGIN_SRC rust
+// macros that Rocket needs
+#![feature(proc_macro_hygiene, decl_macro)]
+#[macro_use]
+extern crate rocket;
+
+use irwa::db::models::Task;
+use irwa::db::{query_task, establish_connection};
+
+#[get("/tasks")]
+fn tasks_get() -> String {
+    // "this is a response\n".into()
+    let mut response: Vec<String> = vec![];
+
+    let conn = establish_connection();
+    for task in query_task(&conn) {
+	response.push(task.title);
+    }
+
+    response.join("\n")
+}
+
+fn main() {
+    rocket::ignite()
+	.mount("/", routes![tasks_get])
+	.launch();
+}
+#+END_SRC
+
+We now see all the tasks shown on the screen!
+
+Just printing a bunch of lines of output is good for now, but we will want to add more information and printing them all to output will become tedious over time.
+
+We can make it easier for our frontend and our backend to communicate with each other if we use a standard data serialization format for our API.
+
+** Serializing to JSON
+
+   We need to add serde and JSON support from rocket_contrib to our Cargo.toml
+   
+#+name:
+#+BEGIN_SRC toml
+[package]
+name = "irwa"
+version = "0.1.0"
+authors = ["dr-neptune <mrose4@worcester.edu>"]
+edition = "2018"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+# database ORM 
+diesel = { version = "1.0.0", features = ["sqlite"]}
+# backend
+rocket = "0.4.2"
+# framework for serializing and deserializing data
+serde = { version = "1.0", features = ["derive"] }
+
+[dependencies.rocket_contrib]
+version = "0.4.2"
+default-features = false
+features = ["json"]
+#+END_SRC
+
+and then we need to use rocket_contrib and serde in backend.rs
+
+#+name:
+#+BEGIN_SRC rust
+// macros that Rocket needs
+#![feature(proc_macro_hygiene, decl_macro)]
+#[macro_use]
+extern crate rocket;
+#[macro_use]
+extern crate serde;
+
+
+use irwa::db::models::Task;
+use irwa::db::{query_task, establish_connection};
+
+#[get("/tasks")]
+fn tasks_get() -> String {
+    // "this is a response\n".into()
+    let mut response: Vec<String> = vec![];
+
+    let conn = establish_connection();
+    for task in query_task(&conn) {
+	response.push(task.title);
+    }
+
+    response.join("\n")
+}
+
+fn main() {
+    rocket::ignite()
+	.mount("/", routes![tasks_get])
+	.launch();
+}
+#+END_SRC
+
+We will follow closely to the JSON API spec, which requires an object at the top level, and a data key at that level -- something like this:
+
+#+name:
+#+BEGIN_SRC json
+{
+    "data": [
+	{ "id": 1, "title": "do the thing" },
+	{ "id": 2, "title": "get stuff done" },
+    ]
+}
+#+END_SRC
+
+Note this isn't strictly conforming with the JSON API spec because the resource objects (the stuff in the data array) aren't formatted properly
+
+Now we can put together a Rust structure to represent it in backend.rs:
+
+#+BEGIN_SRC rust :tangle irwa/backend/src/bin/backend.rs
+// macros that Rocket needs
+#![feature(proc_macro_hygiene, decl_macro)]
+#[macro_use]
+extern crate rocket;
+#[macro_use]
+extern crate serde;
+
+use backend::db::models::Task;
+use backend::db::{query_task, establish_connection};
+use rocket_contrib::json::Json;
+
+// magically returns JSON
+#[derive(Serialize)]
+struct JsonApiResponse {
+    data: Vec<Task>,
+}
+
+#[get("/tasks")]
+fn tasks_get() -> Json<JsonApiResponse> {
+    // "this is a response\n".into()
+    let mut response = JsonApiResponse { data: vec![], };
+
+    let conn = establish_connection();
+    for task in query_task(&conn) {
+	response.data.push(task);
+    }
+
+    Json(response)
+}
+
+fn main() {
+    rocket::ignite()
+	.mount("/", routes![tasks_get])
+	.launch();
+}
+#+END_SRC
+
+* Create a Browser-Based Frontend UI
+
+  The last piece of our application is the UI, which will be based on the seed framework.
+
+** Cargo Workspace
+
+   This build works by generating a library, and Cargo only allows one library per crate. We already have one, so this seems like a problem -- but cargo supports workspaces where we can build multiple crates.
+
+   We will build our backend (db + rest api) into one library crate and our frontend into a separate crate.
+
+   Any shared structs that we define will be in the root crate.
+
+   First we create a new crate as a subdirectory under our existing project directory:
+   
+#+name:
+#+BEGIN_SRC bash
+cargo new --lib frontend
+#+END_SRC
+
+Then we need to move our existing code into a new crate:
+
+#+name:
+#+BEGIN_SRC bash
+cargo new --lib backend
+mv src/lib.rs src/db src/bin/ backend/src
+#+END_SRC
+
+and fix up crate references in backend/src/bin/backend.rs and backend/src/bin/todo.rs
+
+We can build the backend and frontend by adding them as workspace members:
+
+#+name:
+#+BEGIN_SRC toml :tangle irwa/Cargo.toml
+[package]
+name = "irwa"
+version = "0.1.0"
+authors = ["dr-neptune <mrose4@worcester.edu>"]
+edition = "2018"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[workspace]
+members = ["backend", "frontend"]
+#+END_SRC
+
+#+name:
+#+BEGIN_SRC toml :tangle irwa/backend/Cargo.toml
+[package]
+name = "backend"
+version = "0.1.0"
+authors = ["dr-neptune <mrose4@worcester.edu>"]
+edition = "2018"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+# database ORM 
+diesel = { version = "1.0.0", features = ["sqlite"] }
+# backend
+rocket = "0.4.2"
+# framework for serializing and deserializing data
+serde = { version = "1.0", features = ["derive"] }
+
+[dependencies.rocket_contrib]
+version = "0.4.2"
+default-features = false
+features = ["json"]
+#+END_SRC
+
+** Install wasm toolchain
+
+   We are going to be cross compiling our code to wasm32. In order to do that, we need to install the toolchain.
+
+   We also need to set up our crate to build wasm32 and add mytodo, seed, wasm-bindgen, and web-sys as dependencies.
+
+#+name:
+#+BEGIN_SRC toml :tangle irwa/frontend/Cargo.toml
+[package]
+name = "frontend"
+version = "0.1.0"
+authors = ["dr-neptune <mrose4@worcester.edu>"]
+edition = "2018"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[lib]
+crate-type = ["cdylib"]
+
+[dependencies]
+irwa = { path = ".." }
+seed = "^0.4.0"
+wasm-bindgen = "^0.2.50"
+web-sys = "^0.3.27"
+#+END_SRC
+
+We also had to add openssl pkg-config to our environment in the nix-shell and run
+
+#+name:
+#+BEGIN_SRC bash
+cargo install wasm-pack
+cd frontend
+wasm-pack build --target web --out-name package --dev
+#+END_SRC
