@@ -811,12 +811,13 @@ extern crate serde;
 use backend::db::models::Task;
 use backend::db::{query_task, establish_connection};
 use rocket_contrib::json::Json;
+use irwa::JsonApiResponse;
 
 // magically returns JSON
-#[derive(Serialize)]
-struct JsonApiResponse {
-    data: Vec<Task>,
-}
+// #[derive(Serialize)]
+// struct JsonApiResponse {
+//     data: Vec<Task>,
+// }
 
 #[get("/tasks")]
 fn tasks_get() -> Json<JsonApiResponse> {
@@ -824,8 +825,13 @@ fn tasks_get() -> Json<JsonApiResponse> {
     let mut response = JsonApiResponse { data: vec![], };
 
     let conn = establish_connection();
-    for task in query_task(&conn) {
-	response.data.push(task);
+    for db_task in query_task(&conn) {
+	let api_task = irwa::Task {
+	    id: db_task.id,
+	    title: db_task.title,
+	};
+	
+	response.data.push(api_task);
     }
 
     Json(response)
@@ -879,6 +885,10 @@ edition = "2018"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
+# added during the frontend portion
+[dependencies]
+serde = { version = "1.0", features = ["derive"] }
+
 [workspace]
 members = ["backend", "frontend"]
 #+END_SRC
@@ -900,6 +910,8 @@ diesel = { version = "1.0.0", features = ["sqlite"] }
 rocket = "0.4.2"
 # framework for serializing and deserializing data
 serde = { version = "1.0", features = ["derive"] }
+# added during frontend
+irwa = { path = ".." }
 
 [dependencies.rocket_contrib]
 version = "0.4.2"
@@ -928,6 +940,7 @@ crate-type = ["cdylib"]
 
 [dependencies]
 irwa = { path = ".." }
+futures = "^0.1.28"
 seed = "^0.4.0"
 wasm-bindgen = "^0.2.50"
 web-sys = "^0.3.27"
@@ -941,3 +954,180 @@ cargo install wasm-pack
 cd frontend
 wasm-pack build --target web --out-name package --dev
 #+END_SRC
+
+This will leave output in frontend/dev/
+
+** cargo make
+
+cargo make is a tool we can use to automate our build tasks. This is similar to a makefile, but much more verbose. 
+
+we install it with
+
+#+name:
+#+BEGIN_SRC bash
+cargo install cargo-make
+#+END_SRC
+
+and to configure it, we create a new Makefile.toml in the root of our project directory:
+
+#+name:
+#+BEGIN_SRC toml :tangle irwa/Makefile.toml
+[env]
+CARGO_MAKE_EXTENDED_WORKSPACE_MAKEFILE = "true"
+
+[tasks.default]
+clear = true
+dependencies = ["build"]
+#+END_SRC
+
+This file just defines one task: The default task is what gets run when you say cargo make.
+
+cargo make knows about workspaces, and will run each task in each workspace.
+The env variable in our Makefile will have cargo make look in workspace directories for Makefile.toml files, and any tasks in those files will override the tasks in the workspace-level Makefile.toml
+
+#+name:
+#+BEGIN_SRC toml :tangle irwa/frontend/Makefile.toml
+[tasks.default]
+dependencies = ["create_wasm"]
+
+[tasks.create_wasm]
+command = "wasm-pack"
+args = ["build", "--target", "web", "--out-name", "package", "--dev"]
+dependencies = ["build"]
+#+END_SRC
+
+With all that in place, running cargo make in the root will give us:
+- backend library and binaries under target/debug
+- browser loadable web assembly package in frontend/pkg/package_bg.wasm
+
+** Behind the Scenes
+
+   The way our frontend app is going to work:
+
+   - we write some Rust
+   - wasm-pack generates some files
+     - the .wasm file is a WebAssembly binary
+     - the .js file is a JavaScript loader that will pull in the wasm, and it acts as the gatekeeper between js and rust
+     - package.json has some metadata in case we want to integrate with npm and friends
+   - we write an html stub file that loads the .js file, which loads the .wasm
+   - our app attaches itself to a DOM element in the html file
+   - the browser shows our app's UI elements
+   - our users rejoice
+
+** Create the Stub App
+
+#+name:
+#+BEGIN_SRC html :tangle irwa/frontend/index.html
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <title>DoItToDoIt</title>
+  </head>
+  <body>
+    <div id="app"></div>
+    <script type="module">
+      <!-- we don't want to use a bundler like webpack -->
+      <!-- in a real app we may want other web assets to be packed together with our app -->
+      import init from '/pkg/package.js';
+      init('/pkg/package_bg.wasm');
+    </script>
+  </body>
+</html>
+#+END_SRC 
+
+All our html needs to do is provide a div with an id of app and the script snippet that loads the package.
+
+#+name:
+#+BEGIN_SRC rust :tangle irwa/frontend/src/lib.rs
+#[macro_use]
+extern crate seed;
+use seed::prelude::*;
+// for fetching data
+use seed::{fetch, Request};
+// for futures
+use futures::Future;
+
+fn fetch_drills() -> impl Future<Item = Msg, Error = Msg> {
+    // create a future using the Requests struct 
+    Request::new("http://localhost:8000/tasks")
+	.fetch_json_data(Msg::FetchedTasks)
+}
+
+#[derive(Clone, Debug)]
+enum Direction {
+    Coming,
+    Going,
+}
+
+struct Model {
+    direction: Direction,
+}
+
+#[derive(Clone, Debug)]
+enum Msg {
+    FetchedTasks(fetch::ResponseDataResult<JsonApiResponse>),
+}
+
+fn update(msg: Msg, model: &mut Model, _orders: &mut impl Orders<Msg>) {
+    match msg {
+	Msg::FetchedTasks(Ok(result)) => {
+	    // TODO: update the model
+	}
+	Msg::FetchedTasks(Err(reason)) => {
+	    log!(format!("Error fetching: {:?}", reason));
+	    orders.skip();
+	}
+    }
+}
+
+fn view(model: &Model) -> impl View<Msg> {
+    let greeting = match model.direction {
+	Direction::Coming => "Hello, World!",
+	Direction::Going => "Hasta la vista!",
+    };
+    h1![
+	class! {"heading"},
+	style! ["height" => "100vh",
+		"width" => "100vw",],
+	{ greeting },
+	// simple_ev(Ev::Click, Msg::Click),
+    ]
+}
+
+fn init(_url: Url, orders: &mut impl Orders<Msg>) -> Model {
+    // orders provides a mechanism for us to be able to add messages or futures to a queue
+    orders.perform_cmd(fetch_drills());
+    Model {
+	direction: Direction::Coming,
+    }
+}
+
+// this sets things up so that it is called as soon as the module is loaded
+#[wasm_bindgen(start)]
+pub fn render() {
+    seed::App::build(init, update, view).finish().run();
+}
+#+END_SRC
+
+#+name:
+#+BEGIN_SRC rust :tangle irwa/src/lib.rs
+#[macro_use]
+extern crate serde;
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
+pub struct Task {
+    pub id: i32,
+    pub title: String,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
+pub struct JsonApiResponse {
+    pub data: Vec<Task>,
+}
+#+END_SRC
+
+** A Side Note on Refactoring and Testing
+
+   
+
