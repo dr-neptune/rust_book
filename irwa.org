@@ -799,49 +799,110 @@ We will follow closely to the JSON API spec, which requires an object at the top
 Note this isn't strictly conforming with the JSON API spec because the resource objects (the stuff in the data array) aren't formatted properly
 
 Now we can put together a Rust structure to represent it in backend.rs:
-
+ 
 #+BEGIN_SRC rust :tangle irwa/backend/src/bin/backend.rs
-// macros that Rocket needs
+// // macros that Rocket needs
+// #![feature(proc_macro_hygiene, decl_macro)]
+// #[macro_use]
+// extern crate rocket;
+// extern crate rocket_contrib;
+// extern crate serde;
+
+// // use backend::db::models::Task;
+// use backend::db::{query_task, establish_connection};
+// use rocket_contrib::json::Json;
+// use rocket_cors::{AllowedHeaders, AllowedOrigins, Error};
+// use irwa::JsonApiResponse;
+
+// #[get("/tasks")]
+// fn tasks_get() -> Json<JsonApiResponse> {
+//     // "this is a response\n".into()
+//     let mut response = JsonApiResponse { data: vec![] };
+
+//     let conn = establish_connection();
+//     for db_task in query_task(&conn) {
+// 	let api_task = irwa::Task {
+// 	    id: db_task.id,
+// 	    title: db_task.title,
+// 	};
+	
+// 	response.data.push(api_task);
+//     }
+
+//     Json(response)
+// }
+
+// fn main() -> Result<(), Error> {
+//     // add the CORS options to main
+//     let allowed_origins = AllowedOrigins::all();
+    
+//     let cors = rocket_cors::CorsOptions {
+// 	allowed_origins,
+// 	allowed_headers: AllowedHeaders::some(&["Authorization", "Accept"]),
+// 	allow_credentials: true,
+// 	..Default::default()
+//     }
+//     .to_cors()?;
+    
+//     rocket::ignite()
+// 	.mount("/", routes![tasks_get])
+// 	.attach(cors)
+// 	.launch();
+
+//     Ok(())
+// }
+
 #![feature(proc_macro_hygiene, decl_macro)]
+
 #[macro_use]
 extern crate rocket;
-#[macro_use]
+extern crate rocket_contrib;
 extern crate serde;
 
-use backend::db::models::Task;
-use backend::db::{query_task, establish_connection};
 use rocket_contrib::json::Json;
-use irwa::JsonApiResponse;
+// ANCHOR: use_cors
+use rocket_cors::{AllowedHeaders, AllowedOrigins, Error};
+// ANCHOR_END: use_cors
 
-// magically returns JSON
-// #[derive(Serialize)]
-// struct JsonApiResponse {
-//     data: Vec<Task>,
-// }
+use backend::db::{establish_connection, query_task};
+use irwa::JsonApiResponse;
 
 #[get("/tasks")]
 fn tasks_get() -> Json<JsonApiResponse> {
-    // "this is a response\n".into()
-    let mut response = JsonApiResponse { data: vec![], };
+    let mut response = JsonApiResponse { data: vec![] };
 
     let conn = establish_connection();
     for db_task in query_task(&conn) {
-	let api_task = irwa::Task {
-	    id: db_task.id,
-	    title: db_task.title,
-	};
-	
-	response.data.push(api_task);
+        let api_task = irwa::Task {
+            id: db_task.id,
+            title: db_task.title,
+        };
+        response.data.push(api_task);
     }
 
     Json(response)
 }
 
-fn main() {
+// ANCHOR: main
+fn main() -> Result<(), Error> {
+    let allowed_origins = AllowedOrigins::all();
+
+    let cors = rocket_cors::CorsOptions {
+        allowed_origins,
+        allowed_headers: AllowedHeaders::some(&["Authorization", "Accept"]),
+        allow_credentials: true,
+        ..Default::default()
+    }
+    .to_cors()?;
+
     rocket::ignite()
-	.mount("/", routes![tasks_get])
-	.launch();
+        .mount("/", routes![tasks_get])
+        .attach(cors)
+        .launch();
+
+    Ok(())
 }
+// ANCHOR_END: main
 #+END_SRC
 
 * Create a Browser-Based Frontend UI
@@ -894,7 +955,7 @@ members = ["backend", "frontend"]
 #+END_SRC
 
 #+name:
-#+BEGIN_SRC toml :tangle irwa/backend/Cargo.toml
+#+BEGIN_SRC toml
 [package]
 name = "backend"
 version = "0.1.0"
@@ -1022,13 +1083,12 @@ With all that in place, running cargo make in the root will give us:
 <html lang="en">
   <head>
     <meta charset="utf-8">
-    <title>DoItToDoIt</title>
+    <title>irwa</title>
   </head>
   <body>
     <div id="app"></div>
     <script type="module">
-      <!-- we don't want to use a bundler like webpack -->
-      <!-- in a real app we may want other web assets to be packed together with our app -->
+      // https://rustwasm.github.io/docs/wasm-bindgen/examples/without-a-bundler.html
       import init from '/pkg/package.js';
       init('/pkg/package_bg.wasm');
     </script>
@@ -1039,7 +1099,7 @@ With all that in place, running cargo make in the root will give us:
 All our html needs to do is provide a div with an id of app and the script snippet that loads the package.
 
 #+name:
-#+BEGIN_SRC rust :tangle irwa/frontend/src/lib.rs
+#+BEGIN_SRC rust
 #[macro_use]
 extern crate seed;
 use seed::prelude::*;
@@ -1127,7 +1187,162 @@ pub struct JsonApiResponse {
 }
 #+END_SRC
 
-** A Side Note on Refactoring and Testing
+** Displaying the Tasks
 
-   
+   We have some tasks we wish to display. Our displaying machinery lives in the view function.  We need a way to get the tasks from our update function (where we get the fetch result) to the view function (where we make the nodes). The one thing that these have in common is our Model. Let's remove the now useless Direction struct and replace it with a Vec<Task>. We have to touch a few places, so here's the whole frontend/src/lib.rs
+
+#+name:
+#+BEGIN_SRC rust :tangle irwa/frontend/src/lib.rs
+// #[macro_use]
+// extern crate seed;
+// use futures::Future;
+// use seed::prelude::*;
+// use seed::{fetch, Request};
+
+// use irwa::{JsonApiResponse, Task};
+
+// struct Model {
+//     tasks: Vec<Task>,
+// }
+
+// #[derive(Clone, Debug)]
+// enum Msg {
+//     FetchedTasks(fetch::ResponseDataResult<JsonApiResponse>),
+// }
+
+// fn update(msg: Msg, model: &mut Model, _orders: &mut impl Orders<Msg>) {
+//     match msg {
+//         Msg::FetchedTasks(Ok(mut result)) => {
+//             model.tasks.clear();
+//             model.tasks.append(&mut result.data);
+//         }
+//         Msg::FetchedTasks(Err(reason)) => {
+//             log!(format!("Error fetching: {:?}", reason));
+//         }
+//     }
+// }
+
+// fn view(model: &Model) -> impl View<Msg> {
+//     let tasks: Vec::<Node<Msg>> = model
+// 	.tasks
+// 	.iter()
+// 	.map(|t| li![{ t.title.clone() }])
+// 	.collect();
+
+//     h1![ {"Tasks"}, ul![ tasks,],]
+// }
+
+// fn fetch_drills() -> impl Future<Item = Msg, Error = Msg> {
+//     Request::new("http://localhost:8000/tasks").fetch_json_data(Msg::FetchedTasks)
+// }
+
+// fn init(_url: Url, orders: &mut impl Orders<Msg>) -> Model {
+//     orders.perform_cmd(fetch_drills());
+//     AfterMount::new(Model {
+// 	tasks: vec![]
+//     })
+// }
+
+// #[wasm_bindgen(start)]
+// pub fn render() {
+//     seed::App::builder(update, view)
+// 	.after_mount(init)
+// 	.build_and_start();
+// }
+
+
+#[macro_use]
+extern crate seed;
+use futures::Future;
+use seed::prelude::*;
+use seed::{fetch, Request, AfterMount, App};
+
+use irwa::{JsonApiResponse, Task};
+
+struct Model {
+    tasks: Vec<Task>,
+}
+
+#[derive(Clone, Debug)]
+enum Msg {
+    FetchedTasks(fetch::ResponseDataResult<JsonApiResponse>),
+}
+
+fn update(msg: Msg, model: &mut Model, _orders: &mut impl Orders<Msg>) {
+    match msg {
+        Msg::FetchedTasks(Ok(mut result)) => {
+            model.tasks.clear();
+            model.tasks.append(&mut result.data);
+        }
+        Msg::FetchedTasks(Err(reason)) => {
+            log!(format!("Error fetching: {:?}", reason));
+        }
+    }
+}
+
+fn view(model: &Model) -> impl View<Msg> {
+    let tasks: Vec<Node<Msg>> = model
+        .tasks
+        .iter()
+        .map(|t| li![{ t.title.clone() }])
+        .collect();
+
+    h1![{ "Tasks" }, ul![tasks,],]
+}
+
+fn fetch_drills() -> impl Future<Output = Result<Msg, Msg>> {
+    Request::new("http://localhost:8000/tasks/").fetch_json_data(Msg::FetchedTasks)
+}
+
+fn init(_url: Url, orders: &mut impl Orders<Msg>) -> AfterMount<Model> {
+    orders.perform_cmd(fetch_drills());
+    AfterMount::new(Model { tasks: vec![] })
+}
+
+#[wasm_bindgen(start)]
+pub fn render() {
+    seed::App::builder(update, view)
+        .after_mount(init)
+        .build_and_start();
+}
+#+END_SRC
+
+Notice we've deleted the direction struct and replaced its presence in Model with a vector of tasks.
+
+In update, we set the model to contain the vec from the result.
+
+In view, the h1 now just contains a heading "Tasks" and we've set up an unordered list underneath it. At the top of the function we're mapping over the tasks in the model to create some li elements that we can hang off the ul.
+
+** Adding CORS Support in the Backend
+
+   Since the backend is being served on 8000 and the frontend is being served from 9090, we need to make sure our backend is returning the proper Cross-Origin Resource Sharing headers.
+
+#+name:
+#+BEGIN_SRC toml :tangle irwa/backend/Cargo.toml
+[package]
+name = "backend"
+version = "0.1.0"
+authors = ["dr-neptune <mrose4@worcester.edu>"]
+edition = "2018"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+# database ORM 
+diesel = { version = "1.0.0", features = ["sqlite"] }
+# backend
+rocket = "0.4.2"
+# framework for serializing and deserializing data
+serde = { version = "1.0", features = ["derive"] }
+# added during frontend
+irwa = { path = ".." }
+rocket_cors = { version = "0.5.0", default-features = false }
+
+[dependencies.rocket_contrib]
+version = "0.4.2"
+default-features = false
+features = ["json"]
+#+END_SRC   
+
+We also need to add rocket_cors to the top of backend.rs
 
