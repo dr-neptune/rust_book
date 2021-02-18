@@ -1255,7 +1255,7 @@ pub struct JsonApiResponse {
 extern crate seed;
 use futures::Future;
 use seed::prelude::*;
-use seed::{fetch, Request, AfterMount, App};
+use seed::{fetch, Request};
 
 use irwa::{JsonApiResponse, Task};
 
@@ -1346,3 +1346,4 @@ features = ["json"]
 
 We also need to add rocket_cors to the top of backend.rs
 
+Something is wrong here :/ Couldn't get the tasks to display

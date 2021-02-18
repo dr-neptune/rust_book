@@ -42,3 +42,10 @@ This is a workalong of Peter Norvig's "Creating a lisp interpreter in Python", e
 
 It starts as mainly just a calculator, and more is added to it
 
+**Chapters 9 + 10**
+
+### irwa.org [Introduction to Rust Web Applications](https://erwabook.com/intro/index.html)
+
+This book walks through creating a Rust based full stack application. It covers building a sqlite database using diesel to set up the Object Relational Model.
+They also deal with database migrations, setting up a REST API, creating a database access layer with a command line tool, and then using webassembly for the front end.
+
