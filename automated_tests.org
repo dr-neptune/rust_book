@@ -183,7 +183,7 @@ mod tests {
    We can also write tests that use Result<T, E>
    
 #+name:
-#+BEGIN_SRC rust :tangle adder/src/lib.rs 
+#+BEGIN_SRC rust
 #[cfg(test)]
 mod tests {
     #[test]
@@ -197,3 +197,205 @@ mod tests {
 }
 #+END_SRC 
 
+* Controlling How Tests Are Run
+
+  You can specify command line options to change the default behavior of cargo test. 
+  
+** Running Tests in Parallel of Consecutively
+
+   When you run multiple tests, by default they run in parallel using threads. Because they are running at the same time, make sure they don't depend on each other or on any shared state.
+
+   If you don't want to run the tests in parallel, or if you want more fine grained control over the number of threads used, you can do the following:
+
+#+name:
+#+BEGIN_SRC bash
+cargo test -- --test-threads=1
+#+END_SRC
+
+** Showing Function Output
+
+#+name:
+#+BEGIN_SRC rust
+fn prints_and_returns_10(a: i32) -> i32 {
+    println!("I got the value {}", a);
+    10
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn this_test_will_pass() {
+	let value = prints_and_returns_10(4);
+	assert_eq!(10, value);
+    }
+
+    #[test]
+    fn this_test_will_fail() {
+	let value = prints_and_returns_10(8);
+	assert_eq!(5, value);
+    }
+}
+#+END_SRC
+
+Note that by default we don't see the printed output for passing tests in our results, only stdout. Failed tests show printed output. 
+If we want to see printed values for passing tests as well:
+
+#+name:
+#+BEGIN_SRC bash
+cargo test -- --show-output
+#+END_SRC
+
+** Running a Subset of Tests by Name
+
+   Sometimes running a full test suite can take a long time. We may only wish to run tests pertaining to some specific code.
+
+   We can pass the name or names of the tests we want to run as an argument
+
+#+name:
+#+BEGIN_SRC rust
+pub fn add_two(a: i32) -> i32 {
+    a + 2
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn add_two_and_two() {
+	assert_eq!(4, add_two(2));
+    }
+
+    #[test]
+    fn add_three_and_two() {
+	assert_eq!(5, add_two(3));
+    }
+
+    #[test]
+    fn one_hundred() {
+	assert_eq!(102, add_two(100));
+    }
+}
+#+END_SRC
+
+We can run just one test:
+
+#+name:
+#+BEGIN_SRC bash
+cargo test one_hundred
+#+END_SRC
+
+We can specify part of a test name, and any test matching that will be run
+
+#+name:
+#+BEGIN_SRC bash
+cargo test add
+#+END_SRC
+
+** Ignoring Some Tests Unless Specifically Requested
+
+#+name:
+#+BEGIN_SRC rust
+#[test]
+fn it_works() {
+    assert_eq!(2 + 2, 4);
+}
+
+#[test]
+#[ignore]
+fn expensive_test() {
+    // code that takes an hour to run
+}
+#+END_SRC
+
+and if we wish to run the ignored tests
+
+#+name:
+#+BEGIN_SRC bash
+cargo test -- --ignored
+#+END_SRC
+
+* Test Organization
+
+  The Rust community thinks about tests in terms of two main categories: unit tests and integration tests
+
+  Unit tests are small and focused, testing one module in isolation at a time, and can test private interfaces.
+
+  Integration tests are entirely external to your library and use your code in the same way any other external code would, using only the public interface and potentially exercising multiple modules per test.
+
+** Unit Tests
+
+   We put unit tests in the src directory in each file with the code that we're testing.
+
+** Testing Private Functions
+
+#+name:
+#+BEGIN_SRC rust :tangle adder/src/lib.rs
+pub fn add_two(a: i32) -> i32 {
+    internal_adder(a, 2)
+}
+
+fn internal_adder(a: i32, b: i32) -> i32 {
+    a + b
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn internal() {
+	assert_eq!(4, internal_adder(2, 2));
+    }
+}
+#+END_SRC
+
+** Integration Tests
+
+   In Rust, integration tests are entirely external to your library.
+   They can only access functions that are a part of your libary's public API. Their purpose is to test whether many parts of your library work together correctly.
+   To create integration tests, we first need a tests directory
+
+** The tests Directory
+
+   We create a tests directory at the top level of our project directory, next to src. Cargo knows to look for integration tests in this directory.
+   We can then make as many test files as we want to in this directory, and Cargo will compile each of the files as an individual crate.
+
+#+name:
+#+BEGIN_SRC rust
+// need because each file in the tests directory is a separate crate
+use adder;
+
+#[test]
+fn it_adds_two() {
+    assert_eq!(4, adder::add_two(2));
+}
+#+END_SRC
+
+We can still run a particular integration test function by specifying the test functions name as an argument to cargo test
+
+** Submodules in Integration Tests
+
+   We can make multiple files in the tests directory, and have each of them be treated as an independent crate.
+
+   When we want to have a file that tests across multiple submodules, we can shape our directory like so:
+
+   tests/common/mod.rs
+
+   Files in subdirectories of the tests directory don't get compiled as separate crates or have sections in the test output.
+
+   After we create it, we can use it from any of the integration test files as a module.
+
+#+name:
+#+BEGIN_SRC rust :tangle adder/tests/integration_test.rs
+use adder;
+mod common;
+
+#[test]
+fn it_adds_two() {
+    common::setup();
+    assert_eq!(4, adder::add_two(2));
+}
+#+END_SRC
