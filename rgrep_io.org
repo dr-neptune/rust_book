@@ -1,0 +1,515 @@
+* An I/O Project: Building a Command Line Program
+
+  We'll be making our own version of the command line tool grep.
+  In it's simplest use case, grep searches a specified file for a specified string.
+
+* Accepting Command Line Arguments
+
+  First we make a new project called minigrep
+
+#+name:
+#+BEGIN_SRC bash
+cargo new minigrep
+#+END_SRC
+
+We want to make minigrep accept its two command line arguments: the filename and a string to search for.
+
+We wish to be able to do this:
+
+#+name:
+#+BEGIN_SRC bash
+cargo run searchstring example-filename.txt
+#+END_SRC
+
+** Reading the Argument Values
+
+#+name:
+#+BEGIN_SRC rust
+// used to take in command line args
+// returns an iterator of the command like args passed to minigrep
+use std::env;
+
+fn main() {
+    // collect turns an interator into a collection (like a vector)
+    let args: Vec<String> = env::args().collect();
+    println!("{:?}", args);
+}
+#+END_SRC
+
+: ["target/debug/cargor78NNa"]
+
+We see that the first value in the vector is the name of our binary. If we call it with args, we get back a vector with those args in the 1 and 2 slots:
+
+: ["target/debug/cargor78NNa", "needle", "haystack"]
+
+** Saving the Argument Values in Variables
+
+Now we need to save the values of the two arguments in variables so we can use the values throughout the rest of the program
+   
+#+name:
+#+BEGIN_SRC rust
+// used to take in command line args
+// returns an iterator of the command like args passed to minigrep
+use std::env;
+
+fn main() {
+    // collect turns an interator into a collection (like a vector)
+    let args: Vec<String> = env::args().collect();
+    let query = &args[1];
+    let filename = &args[2];
+
+    println!("Searching for:\t{}", query);
+    println!("In file:\t{}", filename);
+}
+#+END_SRC
+
+#+RESULTS: 
+: thread 'main' panicked at 'index out of bounds: the len is 1 but the index is 1', src/main.rs:9:18
+
+* Reading a File
+
+  Now we'll add functionality to read the file that is specified in the filename command line argument.
+
+#+name:
+#+BEGIN_SRC txt :tangle minigrep/poem.txt
+I'm boboddy! Who are you?
+Are you boboddy, too?
+Then there's a pair of us -- don't tell!
+They'd banish us, you know.
+
+How dreary to be somebody!
+How public, like a frog
+To tell your name the livelong day
+To an admiring bog!
+#+END_SRC
+
+Next we update our main to read the file
+
+#+name:
+#+BEGIN_SRC rust
+// used to take in command line args
+// returns an iterator of the command like args passed to minigrep
+use std::env;
+use std::fs;
+
+fn main() {
+    // collect turns an interator into a collection (like a vector)
+    let args: Vec<String> = env::args().collect();
+    let query = &args[1];
+    let filename = &args[2];
+
+    println!("Searching for:\t{}", query);
+    println!("In file:\t{}", filename);
+
+    // read the file referenced in command line args
+    let contents = fs::read_to_string(filename)
+	.expect("Something went wrong reading the file");
+
+    println!("With text:\n---\n{}", contents);
+}
+#+END_SRC
+
+* Refactoring to Improve Modularity and Error Handling
+
+  We'll fix 4 problems that have to do with the program's structure and how it's handling potential errors.
+
+  1. Our main function both parses args and reads files. It's best to separate functionality so each function is responsible for one task
+  2. Although query and filename are configuration variables to our program, variables like contents are used to perform the program's logic.
+  3. We used `expect` to print an error message when reading the file fails.
+  4. We use `expect` repeatedly to handle different errors. It would be best if all the error handling code were in one place so future maintainers have only one place to consult.
+
+** Separation of Concerns for Binary Projects
+
+   Allocating everything to main is a common problem. The Rust community developed a guideline for splitting the separate concerns of a binary program where main starts getting large:
+
+   - Split it into main.rs and lib.rs and move the logic to lib.rs
+   - If the command line parsing logic is small, it can live in main.rs
+   - When the command line logic gets complicated, move it to lib.rs
+
+   The responsibilities that remain in the main function after this process should be limited to the following:
+
+   - Calling the command line parsing logic with the argument values
+   - Setting up any other configuration
+   - Calling a run function in lib.rs
+   - Handling the error if run returns an error
+
+   This is about separating concerns: main.rs runs the program, lib.rs handles all the logic of the task at hand.
+
+** Extracting the Argument Parser
+
+#+name:
+#+BEGIN_SRC rust
+// used to take in command line args
+// returns an iterator of the command like args passed to minigrep
+use std::env;
+use std::fs;
+
+fn main() {
+    // collect turns an interator into a collection (like a vector)
+    let args: Vec<String> = env::args().collect();
+    let (query, filename) = parse_config(&args);
+    
+    println!("Searching for:\t{}", query);
+    println!("In file:\t{}", filename);
+
+    // read the file referenced in command line args
+    let contents = fs::read_to_string(filename)
+	.expect("Something went wrong reading the file");
+
+    println!("With text:\n---\n{}", contents);
+}
+
+fn parse_config(args: &[String]) -> (&str, &str) {
+    let query = &args[1];
+    let filename = &args[2];
+
+    (query, filename)
+}
+#+END_SRC
+   
+** Grouping Configuration Values
+
+   At the moment we're returning a tuple, but then we immediately break that tuple into individual parts again. This is a sign that we don't have the right abstraction yet.
+
+#+BEGIN_SRC rust
+// used to take in command line args
+// returns an iterator of the command like args passed to minigrep
+use std::env;
+use std::fs;
+
+fn main() {
+    // collect turns an interator into a collection (like a vector)
+    let args: Vec<String> = env::args().collect();
+    let config = parse_config(&args);
+    
+    println!("Searching for:\t{}", config.query);
+    println!("In file:\t{}", config.filename);
+
+    // read the file referenced in command line args
+    let contents = fs::read_to_string(config.filename)
+	.expect("Something went wrong reading the file");
+
+    println!("With text:\n---\n{}", contents);
+}
+
+struct Config {
+    query: String,
+    filename: String,
+}
+
+fn parse_config(args: &[String]) -> Config {
+    let query = args[1].clone();
+    let filename = args[2].clone();
+
+    Config { query, filename }
+}
+#+END_SRC
+
+** Creating a Constructor for Config
+
+   We've changed parse_config so that is encapsulates the logic for parsing the command line arguments. Then we refactored it so that way it returns a Config struct containing the data fields we are interested in. Since we have a function returning a struct, it would be more idiomatic to refactor it to a constructor associated with the Config struct.
+  
+#+BEGIN_SRC rust
+// used to take in command line args
+// returns an iterator of the command like args passed to minigrep
+use std::env;
+use std::fs;
+
+fn main() {
+    // collect turns an interator into a collection (like a vector)
+    let args: Vec<String> = env::args().collect();
+    let config = Config::new(&args);
+    
+    println!("Searching for:\t{}", config.query);
+    println!("In file:\t{}", config.filename);
+
+    // read the file referenced in command line args
+    let contents = fs::read_to_string(config.filename)
+	.expect("Something went wrong reading the file");
+
+    println!("With text:\n---\n{}", contents);
+}
+
+struct Config {
+    query: String,
+    filename: String,
+}
+
+impl Config {
+    fn new(args: &[String]) -> Config {
+	let query = args[1].clone();
+	let filename = args[2].clone();
+
+	Config { query, filename }
+    }
+}
+#+END_SRC
+
+** Fixing the Error Handling
+
+   If we run the program with less than 2 args, it panics. If we do more than 2, it ignores the rest.
+
+** Improving the Error Message
+
+#+BEGIN_SRC rust
+// used to take in command line args
+// returns an iterator of the command like args passed to minigrep
+use std::env;
+use std::fs;
+
+fn main() {
+    // collect turns an interator into a collection (like a vector)
+    let args: Vec<String> = env::args().collect();
+    let config = Config::new(&args);
+    
+    println!("Searching for:\t{}", config.query);
+    println!("In file:\t{}", config.filename);
+
+    // read the file referenced in command line args
+    let contents = fs::read_to_string(config.filename)
+	.expect("Something went wrong reading the file");
+
+    println!("With text:\n---\n{}", contents);
+}
+
+struct Config {
+    query: String,
+    filename: String,
+}
+
+impl Config {
+    fn new(args: &[String]) -> Config {
+	if args.len() < 3 {
+	    panic!("not enough arguments!");
+	}
+	let query = args[1].clone();
+	let filename = args[2].clone();
+
+	Config { query, filename }
+    }
+}
+#+END_SRC
+
+** Returning a Result from new Instead of Calling panic!
+
+#+BEGIN_SRC rust
+// used to take in command line args
+// returns an iterator of the command like args passed to minigrep
+use std::env;
+use std::fs;
+use std::process;
+
+fn main() {
+    // collect turns an interator into a collection (like a vector)
+    let args: Vec<String> = env::args().collect();
+    // unwrap_or_else allows us to declare custom (non-panic!) error handling
+    let config = Config::new(&args).unwrap_or_else(|err| {
+	println!("Problem parsing arguments: {}", err);
+	process::exit(1);
+    });
+    
+    println!("Searching for:\t{}", config.query);
+    println!("In file:\t{}", config.filename);
+
+    // read the file referenced in command line args
+    let contents = fs::read_to_string(config.filename)
+	.expect("Something went wrong reading the file");
+
+    println!("With text:\n---\n{}", contents);
+}
+
+struct Config {
+    query: String,
+    filename: String,
+}
+
+impl Config {
+    fn new(args: &[String]) -> Result<Config, &str> {
+	if args.len() < 3 {
+	    return Err("not enough arguments")
+	}
+	
+	let query = args[1].clone();
+	let filename = args[2].clone();
+
+	Ok(Config { query, filename })
+    }
+}
+#+END_SRC
+
+** Extracting Logic from Main
+
+#+BEGIN_SRC rust
+// used to take in command line args
+// returns an iterator of the command like args passed to minigrep
+use std::env;
+use std::fs;
+use std::process;
+
+fn main() {
+    // collect turns an interator into a collection (like a vector)
+    let args: Vec<String> = env::args().collect();
+    // unwrap_or_else allows us to declare custom (non-panic!) error handling
+    let config = Config::new(&args).unwrap_or_else(|err| {
+	println!("Problem parsing arguments: {}", err);
+	process::exit(1);
+    });
+    
+    println!("Searching for:\t{}", config.query);
+    println!("In file:\t{}", config.filename);
+
+    run(config);
+}
+
+fn run(config: Config) {
+    let contents = fs::read_to_string(config.filename)
+	.expect("Something went wrong reading the file");
+
+    println!("With text:\n---\n{}", contents);
+}
+
+struct Config {
+    query: String,
+    filename: String,
+}
+
+impl Config {
+    fn new(args: &[String]) -> Result<Config, &str> {
+	if args.len() < 3 {
+	    return Err("not enough arguments")
+	}
+	
+	let query = args[1].clone();
+	let filename = args[2].clone();
+
+	Ok(Config { query, filename })
+    }
+}
+#+END_SRC   
+
+** Returning Errors from the run Function
+
+   Instead of allowing the program to panic by calling expect, the run function will return a Result<T, E> when something goes wrong.
+
+#+BEGIN_SRC rust
+// used to take in command line args
+// returns an iterator of the command like args passed to minigrep
+use std::env;
+use std::fs;
+use std::process;
+use std::error::Error;
+
+fn main() {
+    // collect turns an interator into a collection (like a vector)
+    let args: Vec<String> = env::args().collect();
+    // unwrap_or_else allows us to declare custom (non-panic!) error handling
+    let config = Config::new(&args).unwrap_or_else(|err| {
+	println!("Problem parsing arguments: {}", err);
+	process::exit(1);
+    });
+    
+    println!("Searching for:\t{}", config.query);
+    println!("In file:\t{}", config.filename);
+
+    // implement error handling for running the config
+    // if an error is captured, then print it and exit
+    if let Err(e) = run(config) {
+	println!("Application Error: {}", e);
+	process::exit(1);
+    }
+}
+
+fn run(config: Config) -> Result<(), Box<dyn Error>> {
+    let contents = fs::read_to_string(config.filename)?;
+
+    println!("With text:\n---\n{}", contents);
+
+    Ok(())
+}
+
+struct Config {
+    query: String,
+    filename: String,
+}
+
+impl Config {
+    fn new(args: &[String]) -> Result<Config, &str> {
+	if args.len() < 3 {
+	    return Err("not enough arguments")
+	}
+	
+	let query = args[1].clone();
+	let filename = args[2].clone();
+
+	Ok(Config { query, filename })
+    }
+}
+#+END_SRC   
+
+** Splitting Code into a Library Crate
+
+   Now we'll split the src/main.rs file and put some code into the src/lib.rs file so we can test it and have a main.rs with fewer responsibilities.
+
+#+name:
+#+BEGIN_SRC rust :tangle minigrep/src/lib.rs
+use std::error::Error;
+use std::fs;
+
+pub fn run(config: Config) -> Result<(), Box<dyn Error>> {
+    let contents = fs::read_to_string(config.filename)?;
+
+    println!("With text:\n---\n{}", contents);
+
+    Ok(())
+}
+
+pub struct Config {
+    pub query: String,
+    pub filename: String,
+}
+
+impl Config {
+    pub fn new(args: &[String]) -> Result<Config, &str> {
+	if args.len() < 3 {
+	    return Err("not enough arguments")
+	}
+	
+	let query = args[1].clone();
+	let filename = args[2].clone();
+
+	Ok(Config { query, filename })
+    }
+}
+#+END_SRC
+
+#+name:
+#+BEGIN_SRC rust :tangle minigrep/src/main.rs
+use std::env;
+use std::process;
+use minigrep::Config;
+
+fn main() {
+    // collect turns an interator into a collection (like a vector)
+    let args: Vec<String> = env::args().collect();
+    // unwrap_or_else allows us to declare custom (non-panic!) error handling
+    let config = Config::new(&args).unwrap_or_else(|err| {
+	println!("Problem parsing arguments: {}", err);
+	process::exit(1);
+    });
+    
+    println!("Searching for:\t{}", config.query);
+    println!("In file:\t{}", config.filename);
+
+    // implement error handling for running the config
+    // if an error is captured, then print it and exit
+    if let Err(e) = minigrep::run(config) {
+	println!("Application Error: {}", e);
+	process::exit(1);
+    }
+}
+#+END_SRC
+
+* Developing the Library's Functionality with Test-Driven Development
+
+  
+
