@@ -2,3 +2,112 @@
 
   This tutorial implements Conway's Game of Life in Rust and WebAssembly
 
+* Setup
+
+  We need the Rust toolchain (rustup, rustc, and cargo)
+
+  We also need wasm-pack, cargo-generate, nodejs, and npm
+  
+* Hello, World!
+
+  First we clone the project template
+
+#+name:
+#+BEGIN_SRC bash
+cargo generate --git https://github.com/rustwasm/wasm-pack-template
+#+END_SRC
+
+here is our generated Cargo.toml:
+
+#+name:
+#+BEGIN_SRC toml
+[package]
+name = "wasm-game-of-life"
+version = "0.1.0"
+authors = ["dr-neptune <mrose4@worcester.edu>"]
+edition = "2018"
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[features]
+default = ["console_error_panic_hook"]
+
+[dependencies]
+wasm-bindgen = "0.2.63"
+
+# The `console_error_panic_hook` crate provides better debugging of panics by
+# logging them with `console.error`. This is great for development, but requires
+# all the `std::fmt` and `std::panicking` infrastructure, so isn't great for
+# code size when deploying.
+console_error_panic_hook = { version = "0.1.6", optional = true }
+
+# `wee_alloc` is a tiny allocator for wasm that is only ~1K in code size
+# compared to the default allocator's ~10K. It is slower than the default
+# allocator, however.
+#
+# Unfortunately, `wee_alloc` requires nightly Rust when targeting wasm for now.
+wee_alloc = { version = "0.4.5", optional = true }
+
+[dev-dependencies]
+wasm-bindgen-test = "0.3.13"
+
+[profile.release]
+# Tell `rustc` to optimize for small code size.
+opt-level = "s"
+#+END_SRC
+
+The src/lib.rs file is the root of the Rust crate that we are compiling to WebAssembly. It uses wasm-bindgen to interface with JavaScript.
+It imports the window.alert JavaScript function and it exports the greet Rust function, which alerts a greeting message.
+
+#+name:
+#+BEGIN_SRC rust
+mod utils;
+
+use wasm_bindgen::prelude::*;
+
+// When the `wee_alloc` feature is enabled, use `wee_alloc` as the global
+// allocator.
+#[cfg(feature = "wee_alloc")]
+#[global_allocator]
+static ALLOC: wee_alloc::WeeAlloc = wee_alloc::WeeAlloc::INIT;
+
+#[wasm_bindgen]
+extern {
+    fn alert(s: &str);
+}
+
+#[wasm_bindgen]
+pub fn greet() {
+    alert("Hello, wasm-game-of-life!");
+}
+#+END_SRC
+
+** Putting it into a Web Page
+
+   To take our wasm-game-of-life package and use it in a web page, we use the create-wasm-app JavaScript project template.
+
+   Run this command in the directory:
+
+#+name:
+#+BEGIN_SRC bash
+npm init wasm-app www
+#+END_SRC
+
+Now we have a www folder with a bunch of generated files
+
+#+name:
+#+BEGIN_SRC bash :dir ~/Documents/exp/rust/gol/pkg/www
+ls
+#+END_SRC
+
+| bootstrap.js      |
+| index.html        |
+| index.js          |
+| LICENSE-APACHE    |
+| LICENSE-MIT       |
+| package.json      |
+| package-lock.json |
+| README.md         |
+| webpack.config.js |
+
