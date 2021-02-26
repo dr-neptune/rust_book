@@ -675,7 +675,7 @@ Pick three.";
 #+END_SRC
 
 #+name:
-#+BEGIN_SRC rust :tangle minigrep/src/main.rs
+#+BEGIN_SRC rust
 use std::env;
 use std::process;
 use minigrep::Config;
@@ -778,11 +778,18 @@ Pick three.";
 #+BEGIN_SRC rust :tangle minigrep/src/lib.rs
 use std::error::Error;
 use std::fs;
+use std::env;
 
 pub fn run(config: Config) -> Result<(), Box<dyn Error>> {
     let contents = fs::read_to_string(config.filename)?;
 
-    for line in search(&config.query, &contents) {
+    let results = if config.case_sensitive {
+	search(&config.query, &contents)
+    } else {
+	search_case_insensitive(&config.query, &contents)
+    };
+    
+    for line in results {
 	println!("{}", line);
     }
     
@@ -792,6 +799,7 @@ pub fn run(config: Config) -> Result<(), Box<dyn Error>> {
 pub struct Config {
     pub query: String,
     pub filename: String,
+    pub case_sensitive: bool,
 }
 
 impl Config {
@@ -802,8 +810,10 @@ impl Config {
 	
 	let query = args[1].clone();
 	let filename = args[2].clone();
-
-	Ok(Config { query, filename })
+	// if env var is found, true, else false and run the case sensitive search 
+	let case_sensitive = env::var("CASE_INSENSITIVE").is_err();
+	
+	Ok(Config { query, filename, case_sensitive, })
     }
 }
 
@@ -816,6 +826,21 @@ pub fn search<'a>(query: &str, contents: &'a str) -> Vec<&'a str> {
 	// the contains method pattern matches
 	if line.contains(query) {
 	    // storing matching lines
+	    results.push(line);
+	}
+    }
+    results
+}
+
+pub fn search_case_insensitive<'a>(
+    query: &str,
+    contents: &'a str,
+) -> Vec<&'a str> {
+    let query = query.to_lowercase();
+    let mut results = Vec::new();
+
+    for line in contents.lines() {
+	if line.to_lowercase().contains(&query) {
 	    results.push(line);
 	}
     }
@@ -847,7 +872,42 @@ safe, fast, productive.
 Pick three.
 Trust me.";
 
-	assert_eq!(vec!["Rust:", "Trust me."], search(query, contents));
+	assert_eq!(vec!["Rust:", "Trust me."], search_case_insensitive(query, contents));
     }
 }
 #+END_SRC
+
+* Writing Error Messages to Standard Error Instead of Standard Output
+
+  At the moment we're writing all of our output to the terminal using the println! macro. Most terminals provide two kinds of output: stdout and stderr for error messages.
+
+** Printing Errors to StdErr
+
+   The std library provides the eprintln! macro that prints to the standard error stream. 
+
+#+BEGIN_SRC rust :tangle minigrep/src/main.rs
+use std::env;
+use std::process;
+use minigrep::Config;
+
+fn main() {
+    // collect turns an interator into a collection (like a vector)
+    let args: Vec<String> = env::args().collect();
+    // unwrap_or_else allows us to declare custom (non-panic!) error handling
+    let config = Config::new(&args).unwrap_or_else(|err| {
+	eprintln!("Problem parsing arguments: {}", err);
+	process::exit(1);
+    });
+    
+    println!("Searching for:\t{}", config.query);
+    println!("In file:\t{}", config.filename);
+
+    // implement error handling for running the config
+    // if an error is captured, then print it and exit
+    if let Err(e) = minigrep::run(config) {
+	eprintln!("Application Error: {}", e);
+	process::exit(1);
+    }
+}
+#+END_SRC   
+
