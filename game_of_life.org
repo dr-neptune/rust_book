@@ -243,7 +243,7 @@ pub fn greet(name: &str) {
 
    We will modify the project template now. We begin by removing the alert import and greet function and replacing them with a type definition for cells.
    
-#+BEGIN_SRC rust :tangle gol/src/lib.rs
+#+BEGIN_SRC rust
 mod utils;
 
 use wasm_bindgen::prelude::*;
@@ -356,7 +356,7 @@ impl fmt::Display for Universe {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
 	for line in self.cells.as_slice().chunks(self.width as usize) {
 	    for &cell in line {
-		let symbol = if cell == Cell::Dead {'◻'} else {'◼'};
+		let symbol = if cell == Cell::Dead {'▢'} else {'▧'};
 		write!(f, "{}", symbol)?;
 	    }
 	    write!(f, "\n")?;
@@ -371,7 +371,7 @@ impl fmt::Display for Universe {
    Lets add a pre tag to show our universe. We also want to center align it
    
 #+name:
-#+BEGIN_SRC html :tangle gol/pkg/www/index.html
+#+BEGIN_SRC html
 <!DOCTYPE html>
 <html>
   <head>
@@ -402,7 +402,7 @@ impl fmt::Display for Universe {
 and we need to import Universe rather than greet
 
 #+name:
-#+BEGIN_SRC javascript :tangle gol/pkg/www/index.js
+#+BEGIN_SRC javascript
 // import * as wasm from "wasm-game-of-life";
 import { Universe } from "wasm-game-of-life";
 
@@ -421,4 +421,442 @@ requestAnimationFrame(renderLoop);
 // wasm.greet("Michael");
 #+END_SRC
 
+** Rendering to Canvas Directly from Memory
+
+   Generating (and allocating) a String in Rust and then having wasm-bindgen convert it to a valid JavaScript string makes unnecessary copies of the universes cells. As the JavaScript code already knows the width and height of the universe and can read WebAssembly's linear memory that makes up the cells directly, we'll modify the render method to return a pointer to the start of the cells array.
+
+   Also, instead of rendering Unicode text we'll switch to the Canvas API.
+
+   First we'll replace the pre we added earlier with a canvas tag.
+   
+#+BEGIN_SRC html :tangle gol/pkg/www/index.html
+<!DOCTYPE html>
+<html>
+  <head>
+    <meta charset="utf-8">
+    <title>Hello wasm-pack!</title>
+    <style>
+      body {
+      position: absolute;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      }
+    </style>
+  </head>
+  <body>
+    <canvas id="game-of-life-canvas"></pre>
+    <noscript>This page contains webassembly and javascript content, please enable javascript in your browser.</noscript>
+    <script src="./bootstrap.js"></script>
+  </body>
+</html>
+#+END_SRC
+
+and then we add the getting functions to our library:
+
+#+BEGIN_SRC rust
+mod utils;
+
+use wasm_bindgen::prelude::*;
+use std::fmt;
+
+// When the `wee_alloc` feature is enabled, use `wee_alloc` as the global
+// allocator.
+#[cfg(feature = "wee_alloc")]
+#[global_allocator]
+static ALLOC: wee_alloc::WeeAlloc = wee_alloc::WeeAlloc::INIT;
+
+// define a Cell
+#[wasm_bindgen]
+#[repr(u8)] // to make sure each cell is represented as a single byte
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Cell {
+    Dead = 0,
+    Alive = 1, // allows us to easily count a cell's live neighbors with addition
+}
+
+// define the universe
+#[wasm_bindgen]
+pub struct Universe {
+    width: u32,
+    height: u32,
+    cells: Vec<Cell>,
+}
+
+#[wasm_bindgen]
+impl Universe {
+    // access a cell at a given row / column 
+    fn get_index(&self, row: u32, column: u32) -> usize {
+	(row * self.width + column) as usize
+    }
+
+    // get live neighbor count for seeing how many neighbors are alive
+    fn live_neighbor_count(&self, row: u32, column: u32) -> u8 {
+	let mut count = 0;
+	for delta_row in [self.height - 1, 0, 1].iter().cloned() {
+	    for delta_col in [self.width - 1, 0, 1].iter().cloned() {
+		if delta_row == 0 && delta_col == 0 {
+		    continue;
+		}
+
+		let neighbor_row = (row + delta_row) % self.height;
+		let neighbor_col = (column + delta_col) % self.width;
+		let idx = self.get_index(neighbor_row, neighbor_col);
+		count += self.cells[idx] as u8;
+	    }
+	}
+	count
+    }
+
+    // compute the next generation from the current one
+    pub fn tick(&mut self) {
+	let mut next = self.cells.clone();
+	
+	for row in 0..self.height {
+	    for col in 0..self.width {
+	    let idx = self.get_index(row, col);
+	    let cell = self.cells[idx];
+	    let live_neighbors = self.live_neighbor_count(row, col);
+
+	    let next_cell = match (cell, live_neighbors) {
+		// Rule 1. Any live cell with fewer than 2 live neighbors dies
+		(Cell::Alive, x) if x < 2 => Cell::Dead,
+		// Rule 2. Any live cell with 2 or 3 neighbors lives
+		(Cell::Alive, 2) | (Cell::Alive, 3) => Cell::Alive,
+		// Rule 3. Any live cell with > 3 neighbors dies
+		(Cell::Alive, x) if x > 3 => Cell::Dead,
+		// Rule 4. Any dead cell with exactly 3 live neighbors comes to life
+		(Cell::Dead, 3) => Cell::Alive,
+		// All other cells remain in the same state
+		(otherwise, _) => otherwise,
+	    };
+
+	    next[idx] = next_cell;
+	    }
+	}
+	self.cells = next;
+	
+    }
+
+    // define a constructor that initializes the Universe with an interesting pattern of live and dead cells
+    pub fn new() -> Universe {
+	let width = 64;
+	let height = 64;
+
+	let cells = (0..width * height)
+	    .map(|i| {
+		if i % 2 == 0 || i % 7 == 0 {
+		    Cell::Alive
+		} else {
+		    Cell::Dead
+		}
+	    })
+	    .collect();
+
+	Universe {
+	    width, height, cells,
+	}
+    }
+
+    // a function to render the universe
+    pub fn render(&self) -> String {
+	self.to_string()
+    }
+
+    // add public methods for JavaScript
+    pub fn width(&self) -> u32 {
+	self.width
+    }
+
+    pub fn height(&self) -> u32 {
+	self.height
+    }
+
+    pub fn cells(&self) -> *const Cell {
+	self.cells.as_ptr()
+    }
+}
+
+impl fmt::Display for Universe {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+	for line in self.cells.as_slice().chunks(self.width as usize) {
+	    for &cell in line {
+		let symbol = if cell == Cell::Dead {'▢'} else {'▧'};
+		write!(f, "{}", symbol)?;
+	    }
+	    write!(f, "\n")?;
+	}
+	Ok(())
+    }
+}
+#+END_SRC
+
+
+Now we can also import cell from our gol code and define some constants for rendering to canvas:
+
+#+BEGIN_SRC javascript :tangle gol/pkg/www/index.js
+import { Universe, Cell } from "wasm-game-of-life";
+// import the WebAssembly memory
+import { memory } from "wasm-game-of-life/wasm_game_of_life_bg";
+
+// constants for rendering to canvas
+const CELL_SIZE = 5; // px
+const GRID_COLOR = "#CCCCCC";
+const DEAD_COLOR = "#FFFFFF";
+const ALIVE_COLOR = "#000000";
+
+// construct the universe, and get its width and height
+const universe = Universe.new();
+const width = universe.width();
+const height = universe.height();
+
+// give the canvas room for all of our cells and a 1px border around each
+const canvas = document.getElementById("game-of-life-canvas");
+canvas.height = (CELL_SIZE + 1) * height + 1;
+canvas.width = (CELL_SIZE + 1) * width + 1;
+
+const ctx = canvas.getContext('2d');
+
+const renderLoop = () => {
+    universe.tick();
+
+    drawGrid();
+    drawCells();
+    
+    requestAnimationFrame(renderLoop);
+};
+
+// draw the grid between cells
+const drawGrid = () => {
+    ctx.beginPath();
+    ctx.strokeStyle = GRID_COLOR;
+
+    // vertical lines
+    for (let i = 0; i <= width; i++) {
+	ctx.moveTo(i * (CELL_SIZE + 1) + 1, 0);
+	ctx.lineTo(i * (CELL_SIZE + 1) + 1, (CELL_SIZE + 1) * height + 1);
+    }
+
+    // horizontal lines
+    for (let j = 0; j <= height; j++) {
+	ctx.moveTo(0, j * (CELL_SIZE + 1) + 1);
+	ctx.lineTo((CELL_SIZE + 1) * width + 1, j * (CELL_SIZE + 1) + 1);
+    }
+
+    ctx.stroke();
+};
+
+const getIndex = (row, column) => {
+    return row * width + column;
+};
+
+const drawCells = () => {
+    const cellsPtr = universe.cells();
+    const cells = new Uint8Array(memory.buffer, cellsPtr, width * height);
+
+    ctx.beginPath();
+
+    for (let row = 0; row < height; row++) {
+	for (let col = 0; col < width; col++) {
+	    const idx = getIndex(row, col);
+
+	    ctx.fillStyle = cells[idx] == Cell.Dead
+		? DEAD_COLOR
+	        : ALIVE_COLOR;
+
+	    ctx.fillRect(
+		col * (CELL_SIZE + 1) + 1,
+		row * (CELL_SIZE + 1) + 1,
+		CELL_SIZE,
+		CELL_SIZE
+	    );
+	}
+    }
+    ctx.stroke();
+}
+
+// start the rendering process
+drawGrid();
+drawCells();
+requestAnimationFrame(renderLoop);
+
+// wasm.greet("Michael");
+#+END_SRC
+
+** Exercises
+
+** Initialize the universe with a single space ship
+
+#+BEGIN_SRC rust :tangle gol/src/lib.rs
+mod utils;
+
+use wasm_bindgen::prelude::*;
+use std::fmt;
+
+// When the `wee_alloc` feature is enabled, use `wee_alloc` as the global
+// allocator.
+#[cfg(feature = "wee_alloc")]
+#[global_allocator]
+static ALLOC: wee_alloc::WeeAlloc = wee_alloc::WeeAlloc::INIT;
+
+// define a Cell
+#[wasm_bindgen]
+#[repr(u8)] // to make sure each cell is represented as a single byte
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Cell {
+    Dead = 0,
+    Alive = 1, // allows us to easily count a cell's live neighbors with addition
+}
+
+// define the universe
+#[wasm_bindgen]
+pub struct Universe {
+    width: u32,
+    height: u32,
+    cells: Vec<Cell>,
+}
+
+#[wasm_bindgen]
+impl Universe {
+    // access a cell at a given row / column 
+    fn get_index(&self, row: u32, column: u32) -> usize {
+	(row * self.width + column) as usize
+    }
+
+    // get live neighbor count for seeing how many neighbors are alive
+    fn live_neighbor_count(&self, row: u32, column: u32) -> u8 {
+	let mut count = 0;
+	for delta_row in [self.height - 1, 0, 1].iter().cloned() {
+	    for delta_col in [self.width - 1, 0, 1].iter().cloned() {
+		if delta_row == 0 && delta_col == 0 {
+		    continue;
+		}
+
+		let neighbor_row = (row + delta_row) % self.height;
+		let neighbor_col = (column + delta_col) % self.width;
+		let idx = self.get_index(neighbor_row, neighbor_col);
+		count += self.cells[idx] as u8;
+	    }
+	}
+	count
+    }
+
+    // compute the next generation from the current one
+    pub fn tick(&mut self) {
+	let mut next = self.cells.clone();
+	
+	for row in 0..self.height {
+	    for col in 0..self.width {
+	    let idx = self.get_index(row, col);
+	    let cell = self.cells[idx];
+	    let live_neighbors = self.live_neighbor_count(row, col);
+
+	    let next_cell = match (cell, live_neighbors) {
+		// Rule 1. Any live cell with fewer than 2 live neighbors dies
+		(Cell::Alive, x) if x < 2 => Cell::Dead,
+		// Rule 2. Any live cell with 2 or 3 neighbors lives
+		(Cell::Alive, 2) | (Cell::Alive, 3) => Cell::Alive,
+		// Rule 3. Any live cell with > 3 neighbors dies
+		(Cell::Alive, x) if x > 3 => Cell::Dead,
+		// Rule 4. Any dead cell with exactly 3 live neighbors comes to life
+		(Cell::Dead, 3) => Cell::Alive,
+		// All other cells remain in the same state
+		(otherwise, _) => otherwise,
+	    };
+
+	    next[idx] = next_cell;
+	    }
+	}
+	self.cells = next;
+	
+    }
+
+    // define a constructor that initializes the Universe with an interesting pattern of live and dead cells
+    pub fn new() -> Universe {
+	let width = 64;
+	let height = 64;
+
+	// let cells = (0..width * height)
+	//     .map(|i| {
+	// 	if i % 2 == 0 || i % 7 == 0 {
+	// 	    Cell::Alive
+	// 	} else {
+	// 	    Cell::Dead
+	// 	}
+	//     })
+	//     .collect();
+
+	let cells = (0..width * height)
+	    .map(|i| {
+		// if i == 130 || i == 66 || i == 194 {
+		// if i == 131 || i == 66 || i == 195 || i == 194 || i == 193 || 
+		//     i == 131 * 5 || i == 66 * 5 || i == 195 * 5 || i == 194 * 5 || i == 193 * 5
+		if
+		    // // crab!
+		    // i == 66 || i == 130 || i == 193 || i == 195 || i == 258 || i == 322 ||
+		    // i == 79 || i == 143 || i == 206 || i == 208 || i == 271 || i == 335 ||
+		    // i == 387 || i == 391 || i == 392 || i == 393 || i == 394 || i == 398 ||
+		    // i == 455 || i == 456 || i == 457 || i == 458 ||
+		    // i == 515 || i == 516 || i == 517 || i == 518 || i == 523 || i == 524 || i == 525 || i == 526 ||
+		    // i == 645 || i == 652 ||
+		    // i == 710 || i == 711 || i == 714 || i == 715
+		    // centered crab
+		    i == 91 || i == 155 || i == 218 || i == 220 || i == 283 || i == 347 ||
+		    i == 104 || i == 168 || i == 231 || i == 233 || i == 296 || i == 360 ||
+		    i == 412 || i == 416 || i == 417 || i == 418 || i == 419 || i == 423 ||
+		    i == 480 || i == 481 || i == 482 || i == 483 ||
+		    i == 540 || i == 541 || i == 542 || i == 543 || i == 548 || i == 549 || i == 550 || i == 551 ||
+		    i == 670 || i == 677 ||
+		    i == 735 || i == 736 || i == 739 || i == 740
+		{
+		    Cell::Alive
+		} else {
+		    Cell::Dead
+		}
+	    })
+	    .collect();
+	// let cells = vec![0, width + 1, 2 * width];
+
+	Universe {
+	    width, height, cells,
+	}
+    }
+
+    // a function to render the universe
+    pub fn render(&self) -> String {
+	self.to_string()
+    }
+
+    // add public methods for JavaScript
+    pub fn width(&self) -> u32 {
+	self.width
+    }
+
+    pub fn height(&self) -> u32 {
+	self.height
+    }
+
+    pub fn cells(&self) -> *const Cell {
+	self.cells.as_ptr()
+    }
+}
+
+impl fmt::Display for Universe {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+	for line in self.cells.as_slice().chunks(self.width as usize) {
+	    for &cell in line {
+		let symbol = if cell == Cell::Dead {'▢'} else {'▧'};
+		write!(f, "{}", symbol)?;
+	    }
+	    write!(f, "\n")?;
+	}
+	Ok(())
+    }
+}
+#+END_SRC   
 
